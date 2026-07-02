@@ -214,6 +214,132 @@ test("toUpdateCommand: dedupes a dependency shared across workspace-attribution 
   assert.deepEqual(toUpdateCommand(rows), ["npm install leftpad@^1.2.0"]);
 });
 
+test("toUpdateCommand: tags a dev dependency with the package manager's dev flag", () => {
+  const rows = [
+    {
+      name: "eslint",
+      requested: "^9.0.0",
+      needsBump: true,
+      latestBump: "9.1.0",
+      type: "dev",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), [
+    "npm install eslint@^9.1.0 --save-dev",
+  ]);
+  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
+    "yarn add eslint@^9.1.0 --dev",
+  ]);
+  assert.deepEqual(toUpdateCommand(rows, "pnpm"), [
+    "pnpm install eslint@^9.1.0 --save-dev",
+  ]);
+  assert.deepEqual(toUpdateCommand(rows, "bun"), [
+    "bun install eslint@^9.1.0 --dev",
+  ]);
+});
+
+test("toUpdateCommand: tags peer and optional dependencies with their flags", () => {
+  const peer = [
+    {
+      name: "react",
+      requested: "^18.0.0",
+      needsBump: true,
+      latestBump: "18.3.0",
+      type: "peer",
+    },
+  ];
+  const optional = [
+    {
+      name: "fsevents",
+      requested: "^2.0.0",
+      needsBump: true,
+      latestBump: "2.3.3",
+      type: "optional",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(peer), [
+    "npm install react@^18.3.0 --save-peer",
+  ]);
+  assert.deepEqual(toUpdateCommand(optional), [
+    "npm install fsevents@^2.3.3 --save-optional",
+  ]);
+  assert.deepEqual(toUpdateCommand(peer, "yarn"), [
+    "yarn add react@^18.3.0 --peer",
+  ]);
+  assert.deepEqual(toUpdateCommand(optional, "yarn"), [
+    "yarn add fsevents@^2.3.3 --optional",
+  ]);
+});
+
+test("toUpdateCommand: a main dependency gets no type flag", () => {
+  const rows = [
+    {
+      name: "chalk",
+      requested: "^5.0.0",
+      needsBump: true,
+      latestBump: "5.4.1",
+      type: "main",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), ["npm install chalk@^5.4.1"]);
+});
+
+test("toUpdateCommand: splits a location into one command per type", () => {
+  const rows = [
+    {
+      name: "chalk",
+      requested: "^5.0.0",
+      needsBump: true,
+      latestBump: "5.4.1",
+      type: "main",
+    },
+    {
+      name: "eslint",
+      requested: "^9.0.0",
+      needsBump: true,
+      latestBump: "9.1.0",
+      type: "dev",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), [
+    "npm install chalk@^5.4.1",
+    "npm install eslint@^9.1.0 --save-dev",
+  ]);
+});
+
+test("toUpdateCommand: type grouping composes with workspace scoping", () => {
+  const rows = [
+    {
+      name: "eslint",
+      requested: "^9.0.0",
+      needsBump: true,
+      latestBump: "9.1.0",
+      type: "dev",
+      declared: "subproject",
+      workspace: "app",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), [
+    "npm install eslint@^9.1.0 --workspace=app --save-dev",
+  ]);
+});
+
+test("toUpdateCommand: hard mode also tags each line with its type flag", () => {
+  const rows = [
+    {
+      name: "eslint",
+      requested: "^9.0.0",
+      version: "9.0.0",
+      needsBump: false,
+      latest: "10.0.0",
+      type: "dev",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
+    "npm install eslint@^10.0.0 --save-dev",
+  ]);
+});
+
 test("toUpdateCommand: hard mode includes an out-of-range dependency that needsBump ignores", () => {
   // Pinned to ^1.x, already at the highest in-range version, but 2.x is out.
   const rows = [

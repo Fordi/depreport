@@ -177,6 +177,7 @@ depreport --format package
 
 ```plain
 npm install chalk@^5.4.1
+npm install eslint@^9.1.0 --save-dev
 npm install lodash@^4.17.21 --workspace=api
 ```
 
@@ -195,7 +196,7 @@ depreport --hard
 ```
 
 ```plain
-npm install @types/node@^26.1.0
+npm install @types/node@^26.1.0 --save-dev
 npm install chalk@^5.4.1 --workspace=api
 ```
 
