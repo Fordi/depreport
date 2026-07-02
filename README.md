@@ -1,12 +1,8 @@
 # @fordi-org/depreport
 
-Generate a CSV report on your project's dependencies: what's installed, when it
-was published, how far behind the latest release it is, how large it is on disk
-(including its transitive closure), and how often you actually import it.
+Generate a CSV report on your project's dependencies: what's installed, when it was published, how far behind the latest release it is, how large it is on disk (including its transitive closure), and how often you actually import it.
 
-It works for single packages and for npm/yarn-style monorepos, reads private
-registry configuration from your `.npmrc`, and caches registry lookups on disk
-so repeated runs are fast.
+It works for single packages and for npm/yarn-style monorepos, reads private registry configuration from your `.npmrc`, and caches registry lookups on disk so repeated runs are fast.
 
 ## Requirements
 
@@ -48,15 +44,17 @@ Usage: depreport [options] [dir]
                        starts with - (default: -needsBump,published,-size)
   -f, --full           Keep the workspace/declared columns even in a
                        single-package repo (they are dropped by default)
+  -q, --quiet          Suppress progress messages on stderr
   -h, --help           Show this help
 ```
 
-The CSV report is written to **stdout**; all progress/diagnostic messages go to
-**stderr**, so you can safely pipe or redirect the report on its own:
+The CSV report is written to **stdout**; all progress/diagnostic messages go to **stderr**, so you can safely pipe or redirect the report on its own:
 
 ```bash
 depreport > report.csv
 ```
+
+Pass `--quiet` (`-q`) to suppress the progress messages entirely (including the written-path echo from `--output`); errors are still reported on stderr.
 
 `dir` may be anywhere inside a project — depreport walks up to the nearest
 `package.json` and treats that directory as the project (or monorepo) root.
@@ -91,13 +89,9 @@ eslint-plugin-n,^18.2.0,18.2.0,2026-06-25T12:56:51.720Z,18.2.1,18.2.1,✓,324683
 @types/node,^25.9.3,25.9.4,2026-06-19T07:15:05.196Z,26.1.0,25.9.4,,2508978,0,dev
 ```
 
-This is a single-package repository, so the `workspace` and `declared` columns
-are vestigial (every row would say `{root}`/`root`) and are dropped. They
-appear automatically when the repo has workspaces; pass `--full` (API:
-`full: true`) to keep them regardless.
+This is a single-package repository, so the `workspace` and `declared` columns are vestigial (every row would say `{root}`/`root`) and are dropped. They appear automatically when the repo has workspaces; pass `--full` (API: `full: true`) to keep them regardless.
 
-Fields are quoted only when they need it (values containing a comma or a
-double-quote); newlines within a value are flattened to spaces.
+Fields are quoted only when they need it (values containing a comma or a double-quote); newlines within a value are flattened to spaces.
 
 > **Note:** dependencies whose installed version already equals the version
 > depreport would advise upgrading to (the `latest` column) are **omitted** —
@@ -121,13 +115,10 @@ double-quote); newlines within a value are flattened to spaces.
 | `type`       | Which manifest section declared it: `main`, `dev`, `peer`, or `optional`.                                  |
 
 Range handling for `latest`/`latestBump`/`needsBump` understands caret (`^`),
-tilde (`~`), and exact versions; prereleases are excluded from upgrade
-suggestions.
+tilde (`~`), and exact versions; prereleases are excluded from upgrade suggestions.
 
-In a repository without workspaces, `workspace` and `declared` carry no
-information, so both the row objects and the CSV omit them unless `--full`
-(API: `full: true`) is given, or (API only) you supply your own extractor for
-one of them.
+In a repository without workspaces, `workspace` and `declared` carry no information, so both the row objects and the CSV omit them unless `--full`
+(API: `full: true`) is given, or (API only) you supply your own extractor for one of them.
 
 ## Dependency types
 
@@ -140,30 +131,20 @@ one of them.
 | `peer`     | `peerDependencies`     |
 | `optional` | `optionalDependencies` |
 
-The default is `main,dev`. When a package appears in more than one selected
-section, the canonical order above wins (so a package in both `dependencies`
+The default is `main,dev`. When a package appears in more than one selected section, the canonical order above wins (so a package in both `dependencies`
 and `devDependencies` reports as `main`).
 
 ## Sort order
 
 `--sort` (API: `sort`) is a list of column names, each optionally prefixed with
-`+` (ascending, the default when unprefixed) or `-` (descending); later keys
-break ties left by earlier ones. The default, `-needsBump,published,-size`,
-puts the rows needing an in-range bump first, oldest publish date first among
-those, and largest install size first as the final discriminator.
+`+` (ascending, the default when unprefixed) or `-` (descending); later keys break ties left by earlier ones. The default, `-needsBump,published,-size`,
+puts the rows needing an in-range bump first, oldest publish date first among those, and largest install size first as the final discriminator.
 
-Cells with no value (for example `published` when the registry document is
-missing) sort **last** regardless of direction, and any rows the spec leaves
-tied are ordered by `workspace` then `name` so output is deterministic.
+Cells with no value (for example `published` when the registry document is missing) sort **last** regardless of direction, and any rows the spec leaves tied are ordered by `workspace` then `name` so output is deterministic.
 
 ## Monorepos / workspaces
 
-If the root `package.json` has a `workspaces` array, each workspace manifest is
-read and reported under its own `workspace` label. Workspace packages themselves
-are treated as internal and never reported as dependencies. A root-level
-dependency is additionally attributed to a workspace when that workspace's
-source actually imports it (tracked in `uses`), and is labelled `declared: root`
-there.
+If the root `package.json` has a `workspaces` array, each workspace manifest is read and reported under its own `workspace` label. Workspace packages themselves are treated as internal and never reported as dependencies. A root-level dependency is additionally attributed to a workspace when that workspace's source actually imports it (tracked in `uses`), and is labelled `declared: root` there.
 
 > **Note:** `workspaces` entries are resolved as **literal paths**; glob
 > patterns like `packages/*` are not expanded. List explicit directories
@@ -185,10 +166,7 @@ const rows = await depreport({
 console.log(rows);
 ```
 
-`depreport(options)` returns a `Promise<Array<object>>` — one object per row,
-ordered per `sort` — where each object has the built-in columns described above
-(plus any custom columns you add). Rows carry rich values; the CSV layer
-formats them for display:
+`depreport(options)` returns a `Promise<Array<object>>` — one object per row, ordered per `sort` — where each object has the built-in columns described above (plus any custom columns you add). Rows carry rich values; the CSV layer formats them for display:
 
 ```javascript
 [
@@ -224,8 +202,7 @@ rendered `{root}` in the CSV) and `declared` (`"root"` | `"subproject"`).
 
 ### Custom columns
 
-Every built-in column is itself an extractor following one contract, and you can
-add your own the same way:
+Every built-in column is itself an extractor following one contract, and you can add your own the same way:
 
 ```typescript
 type ColumnExtractor = (
@@ -239,9 +216,7 @@ type ColumnExtractor = (
   | Promise<string | number | boolean | null>;
 ```
 
-- **`metadata`** — the package's npm registry document, `{ time, latest, versions }`,
-  or `null` if it could not be fetched. (Registry lookups are warmed up front and
-  served from cache, so reading `metadata` is cheap.)
+- **`metadata`** — the package's npm registry document, `{ time, latest, versions }`, or `null` if it could not be fetched. (Registry lookups are warmed up front and served from cache, so reading `metadata` is cheap.)
 - **`context`** — the dependency being reported:
 
   ```javascript
@@ -293,15 +268,12 @@ import { toCsv } from "@fordi-org/depreport";
 const csv = toCsv(rows, ["name", "version", "latest", "tagline"]);
 ```
 
-Without an explicit column list, `toCsv(rows)` emits the built-in report
-columns that are actually present on the rows (so vestigial columns depreport
-dropped stay dropped), or the full set when `rows` is empty.
+Without an explicit column list, `toCsv(rows)` emits the built-in report columns that are actually present on the rows (so vestigial columns depreport dropped stay dropped), or the full set when `rows` is empty.
 
 ## Registry configuration
 
 depreport resolves the registry and authentication the way npm does, reading
-`~/.npmrc` and then the project's `.npmrc` chain (from the repo root down to the
-starting directory, closest wins). It honors:
+`~/.npmrc` and then the project's `.npmrc` chain (from the repo root down to the starting directory, closest wins). It honors:
 
 - `registry` and scoped `@scope:registry` entries
 - auth entries: `_authToken`, `_auth`, and `username` / `_password`

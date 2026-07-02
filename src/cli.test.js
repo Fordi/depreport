@@ -12,6 +12,7 @@ test("parseCliArgs: defaults to '.' with no output, no help, and main+dev types"
     columns: null,
     sort: null,
     full: false,
+    quiet: false,
   });
 });
 
@@ -39,6 +40,7 @@ test("parseCliArgs: combines an option and a positional", () => {
     columns: null,
     sort: null,
     full: false,
+    quiet: false,
   });
 });
 
@@ -108,6 +110,12 @@ test("parseCliArgs: recognizes --full and its -f alias", () => {
   assert.equal(parseCliArgs(["-f"]).full, true);
 });
 
+test("parseCliArgs: recognizes --quiet and its -q alias", () => {
+  assert.equal(parseCliArgs([]).quiet, false);
+  assert.equal(parseCliArgs(["--quiet"]).quiet, true);
+  assert.equal(parseCliArgs(["-q"]).quiet, true);
+});
+
 test("parseCliArgs: throws on a sort key naming an unknown column", () => {
   assert.throws(
     () => parseCliArgs(["--sort", "name,-bogus"]),
@@ -129,5 +137,6 @@ test("HELP_TEXT: describes usage and the options", () => {
   assert.match(HELP_TEXT, /--types/);
   assert.match(HELP_TEXT, /--sort/);
   assert.match(HELP_TEXT, /--full/);
+  assert.match(HELP_TEXT, /--quiet/);
   assert.match(HELP_TEXT, /--help/);
 });

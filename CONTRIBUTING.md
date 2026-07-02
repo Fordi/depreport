@@ -10,7 +10,7 @@ npm install
 
 ## Project structure
 
-```
+```plain
 src/
   index.ts          # Public exports
   {module}.ts       # {module} implementation

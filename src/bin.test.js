@@ -55,6 +55,32 @@ test("bin: writes only the CSV to stdout, diagnostics to stderr", () => {
   assert.match(result.stderr, /Repository root:/);
 });
 
+test("bin: --quiet suppresses the stderr diagnostics", () => {
+  const result = run(["--quiet", emptyProject()]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, `${header}\n`);
+  assert.equal(result.stderr, "");
+});
+
+test("bin: -q with --output also silences the written-path echo", () => {
+  const project = emptyProject();
+  const outFile = path.join(project, "report.csv");
+  const result = run(["-q", "-o", outFile, project]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+  assert.equal(fs.readFileSync(outFile, "utf8"), `${header}\n`);
+});
+
+test("bin: --quiet does not silence errors", () => {
+  const orphan = makeTmp("depreport-orphan-");
+  const nested = path.join(orphan, "nested");
+  fs.mkdirSync(nested);
+  const result = run(["-q", nested]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Not inside a project/);
+});
+
 test("bin: --output writes the CSV to a file and leaves stdout empty", () => {
   const project = emptyProject();
   const outFile = path.join(project, "report.csv");

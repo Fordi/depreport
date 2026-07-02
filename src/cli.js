@@ -19,6 +19,7 @@ export const HELP_TEXT = [
   `                       starts with - (default: ${DEFAULT_SORT.join(",")})`,
   "  -f, --full           Keep the workspace/declared columns even in a",
   "                       single-package repo (they are dropped by default)",
+  "  -q, --quiet          Suppress progress messages on stderr",
   "  -h, --help           Show this help",
 ].join("\n");
 
@@ -29,12 +30,13 @@ export const HELP_TEXT = [
  *   `process.argv.slice(2)`).
  * @returns {{ help: boolean, output: string | null, dir: string,
  *   types: string[], columns: string[] | null, sort: string[] | null,
- *   full: boolean }}
+ *   full: boolean, quiet: boolean }}
  *   Normalized options: whether help was requested, the raw `--output` path
  *   (or null for stdout), the starting directory (defaulting to "."), the
  *   dependency types to include (defaulting to DEFAULT_TYPES), the columns to
- *   emit (null = all), the sort keys (null = depreport's default order), and
- *   whether to keep the vestigial single-package columns.
+ *   emit (null = all), the sort keys (null = depreport's default order),
+ *   whether to keep the vestigial single-package columns, and whether to
+ *   suppress progress messages.
  * @throws {TypeError} If an unknown option is passed or a value is missing.
  * @throws {Error} If `--types`, `--columns`, or `--sort` includes an
  *   unrecognized value.
@@ -48,6 +50,7 @@ export function parseCliArgs(argv) {
       columns: { type: "string", short: "c", multiple: true },
       sort: { type: "string", short: "s", multiple: true },
       full: { type: "boolean", short: "f" },
+      quiet: { type: "boolean", short: "q" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
@@ -60,6 +63,7 @@ export function parseCliArgs(argv) {
     columns: parseColumns(values.columns),
     sort: parseSort(values.sort),
     full: Boolean(values.full),
+    quiet: Boolean(values.quiet),
   };
 }
 

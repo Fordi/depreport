@@ -24,20 +24,22 @@ async function main() {
   const outputPath = args.output ? path.resolve(args.output) : null;
 
   // Progress/diagnostic messages go to stderr so stdout carries only the
-  // report when no --output file is given.
+  // report when no --output file is given; --quiet drops them entirely
+  // (errors still reach stderr).
+  const log = args.quiet ? () => {} : (message) => console.error(message);
   const rows = await depreport({
     dir: args.dir,
     types: args.types,
     // null means "not given on the command line": let depreport default.
     sort: args.sort ?? undefined,
     full: args.full,
-    log: (message) => console.error(message),
+    log,
   });
   const csv = args.columns ? toCsv(rows, args.columns) : toCsv(rows);
 
   if (outputPath) {
     fs.writeFileSync(outputPath, csv, "utf8");
-    console.error(outputPath);
+    log(outputPath);
   } else {
     process.stdout.write(csv);
   }
