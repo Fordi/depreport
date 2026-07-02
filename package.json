@@ -1,0 +1,38 @@
+{
+  "name": "@fordi-org/depreport",
+  "description": "Get a report on your project's dependencies",
+  "license": "ISC",
+  "author": "Bryan Elliott <fordiman@gmail.com>",
+  "type": "module",
+  "repository": "https://github.com/Fordi/depreport",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "depreport": "bin/depreport"
+  },
+  "files": [
+    "src",
+    "bin"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.3",
+    "c8": "^11.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-n": "^18.2.0",
+    "globals": "^17.7.0",
+    "prettier": "^3.8.3"
+  },
+  "scripts": {
+    "test": "node --test 'src/**/*.test.js'",
+    "coverage": "c8 --reporter=html node --test '**/*.test.js'",
+    "validate": "eslint && prettier --check 'src/**/*.js'",
+    "neaten": "eslint --fix && prettier --write 'src/**/*.js'",
+    "clean": "node bin/rm.js -- coverage dist"
+  }
+}

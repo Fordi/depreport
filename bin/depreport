@@ -1,0 +1,46 @@
+#!/usr/bin/env node
+
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+
+import { depreport } from "../src/index.js";
+import { parseCliArgs, HELP_TEXT } from "../src/cli.js";
+import { toCsv } from "../src/csv.js";
+
+let args;
+try {
+  args = parseCliArgs(process.argv.slice(2));
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
+if (args.help) {
+  console.log(HELP_TEXT);
+  process.exit(0);
+}
+
+async function main() {
+  const outputPath = args.output ? path.resolve(args.output) : null;
+
+  // Progress/diagnostic messages go to stderr so stdout carries only the
+  // report when no --output file is given.
+  const rows = await depreport({
+    dir: args.dir,
+    log: (message) => console.error(message),
+  });
+  const csv = toCsv(rows);
+
+  if (outputPath) {
+    fs.writeFileSync(outputPath, csv, "utf8");
+    console.error(outputPath);
+  } else {
+    process.stdout.write(csv);
+  }
+}
+
+main().catch((error) => {
+  console.error(error.message || error);
+  process.exit(1);
+});
