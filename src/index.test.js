@@ -237,6 +237,63 @@ test("depreport: reports across workspaces, excluding internal packages", async 
   }
 });
 
+test("depreport: a workspace's own type/range wins over the root's declaration", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-xtalk-")),
+  );
+  try {
+    // The same package is declared three ways: dev at the root, main in app
+    // (with its own range), dev in lib. Each row must reflect its own
+    // manifest -- the root's entry must not bleed into workspaces that
+    // declare (and use) the package themselves.
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "xtalk-root",
+        workspaces: ["packages/app", "packages/lib"],
+        devDependencies: { shady: "^1.0.0" },
+      }),
+    );
+    write(
+      root,
+      "packages/app/package.json",
+      JSON.stringify({ name: "@x/app", dependencies: { shady: "^1.2.0" } }),
+    );
+    write(
+      root,
+      "packages/lib/package.json",
+      JSON.stringify({ name: "@x/lib", devDependencies: { shady: "^1.0.0" } }),
+    );
+    write(root, "packages/app/src/index.js", 'import s from "shady";\n');
+    write(root, "packages/lib/src/index.js", 'import s from "shady";\n');
+    installPackage(root, "shady", "1.2.0");
+    serve({ shady: outdatedDoc() });
+
+    const rows = await depreport({ dir: root });
+
+    const app = findRow(rows, "shady", "@x/app");
+    assert.ok(app, "expected shady under @x/app");
+    assert.equal(app.declared, "subproject");
+    assert.equal(app.type, "main");
+    assert.equal(app.requested, "^1.2.0");
+
+    const lib = findRow(rows, "shady", "@x/lib");
+    assert.ok(lib, "expected shady under @x/lib");
+    assert.equal(lib.declared, "subproject");
+    assert.equal(lib.type, "dev");
+    assert.equal(lib.requested, "^1.0.0");
+
+    const rootRow = findRow(rows, "shady", undefined);
+    assert.ok(rootRow, "expected shady under the root");
+    assert.equal(rootRow.declared, "root");
+    assert.equal(rootRow.type, "dev");
+    assert.equal(rootRow.requested, "^1.0.0");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("depreport: honors the types option and reports the declaring section", async () => {
   const root = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), "depreport-types-")),

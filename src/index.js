@@ -174,6 +174,13 @@ export async function depreport({
 
     if (workspace.workspaceLabel !== "{root}") {
       for (const dependencyName of rootDependencies) {
+        // A workspace's own declaration wins over the root's: inheritance is
+        // only for deps the workspace uses without declaring, so a package
+        // that is (say) dev at the root and main here keeps its own type,
+        // range, and declared label.
+        if (declaredByWorkspace.has(dependencyName)) {
+          continue;
+        }
         const uses = countUses(
           workspaceDir,
           dependencyName,
