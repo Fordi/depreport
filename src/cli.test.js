@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseCliArgs, HELP_TEXT } from "./cli.js";
+import { parseCliArgs, HELP_TEXT, FORMATS, DEFAULT_FORMAT } from "./cli.js";
 
 test("parseCliArgs: defaults to '.' with no output, no help, and main+dev types", () => {
   assert.deepEqual(parseCliArgs([]), {
@@ -13,6 +13,7 @@ test("parseCliArgs: defaults to '.' with no output, no help, and main+dev types"
     sort: null,
     full: false,
     quiet: false,
+    format: DEFAULT_FORMAT,
   });
 });
 
@@ -41,6 +42,7 @@ test("parseCliArgs: combines an option and a positional", () => {
     sort: null,
     full: false,
     quiet: false,
+    format: DEFAULT_FORMAT,
   });
 });
 
@@ -116,6 +118,20 @@ test("parseCliArgs: recognizes --quiet and its -q alias", () => {
   assert.equal(parseCliArgs(["-q"]).quiet, true);
 });
 
+test("parseCliArgs: format defaults to csv", () => {
+  assert.equal(parseCliArgs([]).format, "csv");
+  assert.deepEqual(FORMATS, ["csv", "json", "package"]);
+});
+
+test("parseCliArgs: reads --format and its -F alias", () => {
+  assert.equal(parseCliArgs(["--format", "json"]).format, "json");
+  assert.equal(parseCliArgs(["-F", "package"]).format, "package");
+});
+
+test("parseCliArgs: throws on an unrecognized --format value", () => {
+  assert.throws(() => parseCliArgs(["--format", "xml"]), /Unknown format: xml/);
+});
+
 test("parseCliArgs: throws on a sort key naming an unknown column", () => {
   assert.throws(
     () => parseCliArgs(["--sort", "name,-bogus"]),
@@ -137,6 +153,7 @@ test("HELP_TEXT: describes usage and the options", () => {
   assert.match(HELP_TEXT, /--types/);
   assert.match(HELP_TEXT, /--sort/);
   assert.match(HELP_TEXT, /--full/);
+  assert.match(HELP_TEXT, /--format/);
   assert.match(HELP_TEXT, /--quiet/);
   assert.match(HELP_TEXT, /--help/);
 });

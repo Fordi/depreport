@@ -81,6 +81,32 @@ test("bin: --quiet does not silence errors", () => {
   assert.match(result.stderr, /Not inside a project/);
 });
 
+test("bin: --format json emits the rows as JSON", () => {
+  const result = run(["--format", "json", emptyProject()]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "[]\n");
+  assert.deepEqual(JSON.parse(result.stdout), []);
+});
+
+test("bin: -F is the short alias for --format", () => {
+  const result = run(["-F", "json", emptyProject()]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "[]\n");
+});
+
+test("bin: --format package emits nothing when no dependency needs a bump", () => {
+  const result = run(["--format", "package", emptyProject()]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("bin: an unrecognized --format value exits 1 with a message on stderr", () => {
+  const result = run(["--format", "xml", emptyProject()]);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Unknown format: xml/);
+});
+
 test("bin: --output writes the CSV to a file and leaves stdout empty", () => {
   const project = emptyProject();
   const outFile = path.join(project, "report.csv");

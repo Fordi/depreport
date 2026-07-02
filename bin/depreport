@@ -6,6 +6,9 @@ import process from "node:process";
 
 import { depreport, toCsv } from "../src/index.js";
 import { parseCliArgs, HELP_TEXT } from "../src/cli.js";
+import { findRepoRoot, hasWorkspaces } from "../src/repoRoot.js";
+import { detectPackageManager } from "../src/packageManager.js";
+import { toUpdateCommand } from "../src/updateCommand.js";
 
 let args;
 try {
@@ -35,13 +38,29 @@ async function main() {
     full: args.full,
     log,
   });
-  const csv = args.columns ? toCsv(rows, args.columns) : toCsv(rows);
+  const output = renderOutput(args, rows);
 
   if (outputPath) {
-    fs.writeFileSync(outputPath, csv, "utf8");
+    fs.writeFileSync(outputPath, output, "utf8");
     log(outputPath);
   } else {
-    process.stdout.write(csv);
+    process.stdout.write(output);
+  }
+}
+
+function renderOutput(args, rows) {
+  switch (args.format) {
+    case "json":
+      return `${JSON.stringify(rows, null, 2)}\n`;
+    case "package": {
+      const repoRoot = findRepoRoot(path.resolve(args.dir));
+      const commands = toUpdateCommand(rows, detectPackageManager(repoRoot), {
+        isMonorepo: hasWorkspaces(repoRoot),
+      });
+      return commands.length ? `${commands.join("\n")}\n` : "";
+    }
+    default:
+      return args.columns ? toCsv(rows, args.columns) : toCsv(rows);
   }
 }
 

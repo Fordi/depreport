@@ -4,6 +4,9 @@ import { DEP_TYPES, DEFAULT_TYPES } from "./depTypes.js";
 import { REPORT_COLUMNS } from "./csv.js";
 import { DEFAULT_SORT, parseSortKey } from "./sort.js";
 
+export const FORMATS = ["csv", "json", "package"];
+export const DEFAULT_FORMAT = "csv";
+
 export const HELP_TEXT = [
   "Usage: depreport [options] [dir]",
   "",
@@ -19,6 +22,12 @@ export const HELP_TEXT = [
   `                       starts with - (default: ${DEFAULT_SORT.join(",")})`,
   "  -f, --full           Keep the workspace/declared columns even in a",
   "                       single-package repo (they are dropped by default)",
+  `  -F, --format <fmt>   Output format: ${FORMATS.join(", ")} (default: ${DEFAULT_FORMAT})`,
+  "                       csv: the dependency report as CSV",
+  "                       json: the report rows as JSON",
+  "                       package: an install command (detected package",
+  "                       manager, e.g. npm/yarn/pnpm/bun) for every",
+  "                       dependency needing an in-range bump",
   "  -q, --quiet          Suppress progress messages on stderr",
   "  -h, --help           Show this help",
 ].join("\n");
@@ -30,16 +39,17 @@ export const HELP_TEXT = [
  *   `process.argv.slice(2)`).
  * @returns {{ help: boolean, output: string | null, dir: string,
  *   types: string[], columns: string[] | null, sort: string[] | null,
- *   full: boolean, quiet: boolean }}
+ *   full: boolean, quiet: boolean, format: "csv" | "json" | "package" }}
  *   Normalized options: whether help was requested, the raw `--output` path
  *   (or null for stdout), the starting directory (defaulting to "."), the
  *   dependency types to include (defaulting to DEFAULT_TYPES), the columns to
  *   emit (null = all), the sort keys (null = depreport's default order),
- *   whether to keep the vestigial single-package columns, and whether to
- *   suppress progress messages.
+ *   whether to keep the vestigial single-package columns, whether to
+ *   suppress progress messages, and the output format (defaulting to
+ *   DEFAULT_FORMAT).
  * @throws {TypeError} If an unknown option is passed or a value is missing.
- * @throws {Error} If `--types`, `--columns`, or `--sort` includes an
- *   unrecognized value.
+ * @throws {Error} If `--types`, `--columns`, `--sort`, or `--format` includes
+ *   an unrecognized value.
  */
 export function parseCliArgs(argv) {
   const { values, positionals } = parseArgs({
@@ -50,6 +60,7 @@ export function parseCliArgs(argv) {
       columns: { type: "string", short: "c", multiple: true },
       sort: { type: "string", short: "s", multiple: true },
       full: { type: "boolean", short: "f" },
+      format: { type: "string", short: "F" },
       quiet: { type: "boolean", short: "q" },
       help: { type: "boolean", short: "h" },
     },
@@ -64,6 +75,7 @@ export function parseCliArgs(argv) {
     sort: parseSort(values.sort),
     full: Boolean(values.full),
     quiet: Boolean(values.quiet),
+    format: parseFormat(values.format),
   };
 }
 
@@ -128,4 +140,18 @@ function parseSort(rawSort) {
     );
   }
   return sort;
+}
+
+// Validate --format against the known output formats, defaulting to "csv"
+// when omitted.
+function parseFormat(rawFormat) {
+  if (!rawFormat) {
+    return DEFAULT_FORMAT;
+  }
+  if (!FORMATS.includes(rawFormat)) {
+    throw new Error(
+      `Unknown format: ${rawFormat}. Valid formats: ${FORMATS.join(", ")}`,
+    );
+  }
+  return rawFormat;
 }

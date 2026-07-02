@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { findRepoRoot } from "./repoRoot.js";
+import { findRepoRoot, hasWorkspaces } from "./repoRoot.js";
 
 const tmpDirs = [];
 function makeTmp() {
@@ -51,4 +51,28 @@ test("findRepoRoot: throws when no package.json exists up to the filesystem root
   const nested = path.join(root, "x", "y");
   fs.mkdirSync(nested, { recursive: true });
   assert.throws(() => findRepoRoot(nested), /Not inside a project/);
+});
+
+test("hasWorkspaces: false when the manifest has no workspaces field", () => {
+  const root = makeTmp();
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({}));
+  assert.equal(hasWorkspaces(root), false);
+});
+
+test("hasWorkspaces: false for an empty workspaces array", () => {
+  const root = makeTmp();
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ workspaces: [] }),
+  );
+  assert.equal(hasWorkspaces(root), false);
+});
+
+test("hasWorkspaces: true when workspaces lists at least one entry", () => {
+  const root = makeTmp();
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ workspaces: ["packages/app"] }),
+  );
+  assert.equal(hasWorkspaces(root), true);
 });

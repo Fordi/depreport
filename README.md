@@ -44,6 +44,12 @@ Usage: depreport [options] [dir]
                        starts with - (default: -needsBump,published,-size)
   -f, --full           Keep the workspace/declared columns even in a
                        single-package repo (they are dropped by default)
+  -F, --format <fmt>   Output format: csv, json, package (default: csv)
+                       csv: the dependency report as CSV
+                       json: the report rows as JSON
+                       package: an install command (detected package
+                       manager, e.g. npm/yarn/pnpm/bun) for every
+                       dependency needing an in-range bump
   -q, --quiet          Suppress progress messages on stderr
   -h, --help           Show this help
 ```
@@ -78,6 +84,14 @@ depreport -c name,version,latest,needsBump
 # list starts with -, so it is not read as an option)
 depreport -s name
 depreport --sort=-size,name
+
+# Emit the report as JSON instead of CSV
+depreport --format json
+
+# Print (and optionally run) install command(s) for everything that
+# needs an in-range bump
+depreport --format package
+depreport -F package | sh
 ```
 
 ### Sample output
@@ -141,6 +155,31 @@ and `devDependencies` reports as `main`).
 puts the rows needing an in-range bump first, oldest publish date first among those, and largest install size first as the final discriminator.
 
 Cells with no value (for example `published` when the registry document is missing) sort **last** regardless of direction, and any rows the spec leaves tied are ordered by `workspace` then `name` so output is deterministic.
+
+## Output formats
+
+`--format` (`-F`) selects what depreport prints, in place of the CSV report:
+
+- `csv` (default) — the dependency report as CSV, as described above.
+- `json` — `JSON.stringify(rows, null, 2)`: the same row objects the JavaScript API returns, so `published` is an ISO string and `workspace: undefined` fields are simply absent from the output (JSON has no `undefined`).
+- `package` — one or more shell commands that install every dependency with `needsBump: true`, pinned to `latestBump` with the same `^`/`~` leader as the manifest's `requested` range (so `^1.2.0` stays a caret range, not an exact pin). In a monorepo, a dependency declared by a workspace's own manifest gets a command scoped to that workspace (`--workspace=<name>` for npm, `yarn workspace <name> add ...` for yarn, `--filter <name>` for pnpm/bun); a dependency declared at the root — even if only reported because a workspace happens to use it — is installed once at the root, using `add` rather than `install` for yarn (which doesn't accept package specs on `install`) with `-W` appended whenever the repo declares workspaces (yarn otherwise refuses to touch the root manifest). `--columns` and `--sort` are ignored for `json`/`package` (there's nothing to select or order).
+
+```bash
+depreport --format package
+```
+
+```plain
+npm install chalk@^5.4.1
+npm install lodash@^4.17.21 --workspace=api
+```
+
+The package manager is detected from the lockfile at the repo root (`package-lock.json`/`npm-shrinkwrap.json` → npm, `yarn.lock` → yarn, `pnpm-lock.yaml` → pnpm, `bun.lockb`/`bun.lock` → bun; npm is the default when none is found).
+
+This can be piped directly into bash, for a fast upgrade:
+
+```bash
+depreport --format package | bash
+```
 
 ## Monorepos / workspaces
 

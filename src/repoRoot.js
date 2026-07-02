@@ -14,3 +14,11 @@ export function findRepoRoot(startDir) {
   }
   return repoRoot;
 }
+
+// Whether the project rooted at `repoRoot` declares any workspaces.
+export function hasWorkspaces(repoRoot) {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+  );
+  return Array.isArray(manifest.workspaces) && manifest.workspaces.length > 0;
+}
