@@ -17,7 +17,8 @@ process.env.XDG_CACHE_HOME = cacheDir;
 process.env.HOME = homeDir;
 process.env.DEPREPORT_CONCURRENCY = "2";
 
-const { depreport } = await import("./index.js");
+const { depreport, toCsv, REPORT_COLUMNS, REPORT_FORMATTERS } =
+  await import("./index.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -111,21 +112,30 @@ test("depreport: builds a row per outdated external dependency", async () => {
   assert.equal(rows.length, 1);
   const row = rows[0];
   assert.equal(row.name, "leftpad");
-  assert.equal(row.workspace, "{root}");
+  // A single-package repo drops the vestigial workspace/declared columns.
+  assert.equal("workspace" in row, false);
+  assert.equal("declared" in row, false);
   assert.equal(row.requested, "^1.0.0");
   assert.equal(row.version, "1.0.5");
-  assert.equal(row.age, "2020-01-02T00:00:00Z");
+  // published is a Date in the primary data.
+  assert.ok(row.published instanceof Date);
+  assert.equal(row.published.toISOString(), "2020-01-02T00:00:00.000Z");
   assert.equal(row.latest, "1.2.0");
   // ^1.0.0 admits everything published up to <2.0.0, so the latest in-range
   // bump is 1.2.0, and the installed 1.0.5 is behind it.
   assert.equal(row.latestBump, "1.2.0");
-  assert.equal(row.needsBump, "✓");
+  assert.equal(row.needsBump, true);
   assert.equal(row.uses, 1);
-  assert.equal(row.declared, "root");
   assert.ok(row.size > 0);
 
   // Progress is reported through the log callback, not stdout/stderr.
   assert.ok(logs.some((message) => message.includes("Repository root:")));
+
+  // full: true overrides the single-package detection and keeps both columns.
+  const [fullRow] = await depreport({ dir: projectDir, full: true });
+  assert.equal(fullRow.workspace, undefined);
+  assert.equal("workspace" in fullRow, true);
+  assert.equal(fullRow.declared, "root");
 });
 
 test("depreport: reports across workspaces, excluding internal packages", async () => {
@@ -192,9 +202,9 @@ test("depreport: reports across workspaces, excluding internal packages", async 
       );
     }
 
-    // Root workspace: its own declared dependency, labelled {root}/root.
-    const rootShared = findRow(rows, "shared-dep", "{root}");
-    assert.ok(rootShared, "expected shared-dep under {root}");
+    // Root workspace: its own declared dependency, with an undefined workspace.
+    const rootShared = findRow(rows, "shared-dep", undefined);
+    assert.ok(rootShared, "expected shared-dep under the root");
     assert.equal(rootShared.declared, "root");
 
     // app workspace: its own dep is "subproject"; the root dep it imports is
@@ -225,6 +235,172 @@ test("depreport: reports across workspaces, excluding internal packages", async 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("depreport: honors the types option and reports the declaring section", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-types-")),
+  );
+  try {
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "typed-proj",
+        dependencies: { maindep: "^1.0.0" },
+        devDependencies: { devdep: "^1.0.0" },
+        peerDependencies: { peerdep: "^1.0.0" },
+        optionalDependencies: { optdep: "^1.0.0" },
+      }),
+    );
+    for (const name of ["maindep", "devdep", "peerdep", "optdep"]) {
+      installPackage(root, name, "1.0.0");
+    }
+    serve({
+      maindep: outdatedDoc(),
+      devdep: outdatedDoc(),
+      peerdep: outdatedDoc(),
+      optdep: outdatedDoc(),
+    });
+
+    // Default types: main + dev only.
+    const def = await depreport({ dir: root });
+    assert.deepEqual(def.map((r) => [r.name, r.type]).sort(), [
+      ["devdep", "dev"],
+      ["maindep", "main"],
+    ]);
+
+    // Explicit selection pulls in the other two sections and labels them.
+    const peerOptional = await depreport({
+      dir: root,
+      types: ["peer", "optional"],
+    });
+    assert.deepEqual(peerOptional.map((r) => [r.name, r.type]).sort(), [
+      ["optdep", "optional"],
+      ["peerdep", "peer"],
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("depreport: supports custom columns with the (metadata, context) contract", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-cols-")),
+  );
+  try {
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "cols-proj",
+        dependencies: { leftpad: "^1.0.0" },
+      }),
+    );
+    write(root, "index.js", 'import leftpad from "leftpad";\n');
+    installPackage(root, "leftpad", "1.0.5");
+    serve({
+      leftpad: {
+        "dist-tags": { latest: "1.2.0" },
+        time: { "1.0.5": "2020-01-02T00:00:00Z" },
+        versions: { "1.0.5": {}, "1.2.0": {} },
+      },
+    });
+
+    const seen = [];
+    const rows = await depreport({
+      dir: root,
+      columns: {
+        // A custom column that reads both metadata and context.
+        tagline: (metadata, context) => {
+          seen.push({ name: context.name, latest: metadata?.latest });
+          return `${context.name}@${metadata?.latest}`;
+        },
+        // Overriding a vestigial column keeps it, even in a single-package
+        // repo where the built-in would have been dropped.
+        declared: () => "custom",
+      },
+    });
+
+    assert.equal(rows.length, 1);
+    // Built-in columns are still present alongside the custom one.
+    assert.equal(rows[0].name, "leftpad");
+    assert.equal(rows[0].latest, "1.2.0");
+    assert.equal(rows[0].tagline, "leftpad@1.2.0");
+    assert.equal(rows[0].declared, "custom");
+    // The un-overridden vestigial column is still dropped.
+    assert.equal("workspace" in rows[0], false);
+    // The extractor received the fetched metadata and the dependency context.
+    assert.deepEqual(seen, [{ name: "leftpad", latest: "1.2.0" }]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("depreport: orders rows per the sort option", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-sort-")),
+  );
+  try {
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "sort-proj",
+        dependencies: {
+          alpha: "^1.0.0",
+          beta: "^1.0.0",
+          gamma: "^1.0.0",
+        },
+      }),
+    );
+    for (const name of ["alpha", "beta", "gamma"]) {
+      installPackage(root, name, "1.0.0");
+    }
+    // alpha and beta need a bump (published 2021 and 2019 respectively);
+    // gamma has no registry metadata, so its needsBump is indeterminate
+    // (null) and its published is undefined.
+    const docFor = (published) => ({
+      "dist-tags": { latest: "1.5.0" },
+      time: { "1.0.0": published },
+      versions: { "1.0.0": {}, "1.5.0": {} },
+    });
+    serve({
+      alpha: docFor("2021-05-01T00:00:00Z"),
+      beta: docFor("2019-01-01T00:00:00Z"),
+    });
+
+    const names = (rows) => rows.map((r) => r.name);
+
+    // Default (-needsBump, published, -size): bump-needed rows first, oldest
+    // publish date first among them; gamma's nullish cells sort last.
+    assert.deepEqual(names(await depreport({ dir: root })), [
+      "beta",
+      "alpha",
+      "gamma",
+    ]);
+
+    // An explicit spec replaces the default entirely.
+    assert.deepEqual(names(await depreport({ dir: root, sort: ["name"] })), [
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+    assert.deepEqual(names(await depreport({ dir: root, sort: ["-name"] })), [
+      "gamma",
+      "beta",
+      "alpha",
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("index: re-exports the CSV API from the package root", async () => {
+  const csv = await import("./csv.js");
+  assert.equal(toCsv, csv.toCsv);
+  assert.equal(REPORT_COLUMNS, csv.REPORT_COLUMNS);
+  assert.equal(REPORT_FORMATTERS, csv.REPORT_FORMATTERS);
 });
 
 test("depreport: throws when started outside any project", async () => {

@@ -10,12 +10,7 @@ import {
   encodePackageName,
   authHeaderFor,
 } from "./npmConfig.js";
-import {
-  parseVersion,
-  isStableVersion,
-  compareVersions,
-  satisfiesRange,
-} from "./version.js";
+import { maxSatisfying } from "./version.js";
 
 const npmMetadataCache = new Map();
 
@@ -83,7 +78,7 @@ async function fetchFromRegistry(packageName, npmConfig) {
   };
 }
 
-async function fetchNpmMetadata(packageName, npmConfig) {
+export async function fetchNpmMetadata(packageName, npmConfig) {
   if (!packageName) return null;
   if (npmMetadataCache.has(packageName)) {
     return npmMetadataCache.get(packageName);
@@ -151,15 +146,5 @@ export async function fetchLatestCompatibleVersion(
   npmConfig,
 ) {
   const payload = await fetchNpmMetadata(packageName, npmConfig);
-  if (!payload || !payload.versions) return "";
-  const versions = payload.versions.filter(
-    (candidate) => parseVersion(candidate) && isStableVersion(candidate),
-  );
-  const sortedVersions = versions.sort((left, right) =>
-    compareVersions(parseVersion(left), parseVersion(right)),
-  );
-  const compatible = sortedVersions
-    .filter((candidate) => satisfiesRange(candidate, range))
-    .pop();
-  return compatible || "";
+  return payload ? maxSatisfying(payload.versions, range) : "";
 }

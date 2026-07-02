@@ -4,15 +4,16 @@ import path from "node:path";
 import { findRepoRoot } from "./repoRoot.js";
 import { countUses } from "./sourceUsage.js";
 import { resolveInstalledPackageDir } from "./packageResolution.js";
-import { getTransitivePackageSize } from "./packageSize.js";
 import { loadNpmConfig } from "./npmConfig.js";
-import {
-  prefetchMetadata,
-  fetchPublishedAt,
-  fetchLatestVersion,
-  fetchLatestCompatibleVersion,
-} from "./registry.js";
+import { prefetchMetadata, fetchNpmMetadata } from "./registry.js";
 import { parseVersion, compareVersions } from "./version.js";
+import { sectionsForTypes, DEFAULT_TYPES } from "./depTypes.js";
+import { BUILTIN_COLUMNS, latestEffective } from "./columns.js";
+import { DEFAULT_SORT, buildComparator } from "./sort.js";
+
+// CSV rendering is part of the public API: rows from depreport() feed straight
+// into toCsv(), so consumers get both from the package root.
+export { toCsv, REPORT_COLUMNS, REPORT_FORMATTERS } from "./csv.js";
 
 /**
  * Build a dependency report for the project (or monorepo) containing `dir`.
@@ -25,13 +26,39 @@ import { parseVersion, compareVersions } from "./version.js";
  * @param {object} [options]
  * @param {string} [options.dir="."] Directory to start from; the report is
  *   built for the nearest ancestor containing a package.json.
+ * @param {("main"|"dev"|"peer"|"optional")[]} [options.types] Which manifest
+ *   dependency sections to include, mapping main->dependencies,
+ *   dev->devDependencies, peer->peerDependencies, optional->optionalDependencies.
+ *   Defaults to ["main", "dev"].
  * @param {(message: string) => void} [options.log] Optional progress sink for
  *   diagnostic messages (repo root, manifests, workspaces). Defaults to no-op.
- * @returns {Promise<Array<object>>} Array of dependency rows, sorted by
- *   `workspace` then `name`. Each row has: name, workspace, requested,
- *   version, age, latest, latestBump, needsBump, size, uses, declared.
+ * @param {Record<string, import("./columns.js").ColumnExtractor>} [options.columns]
+ *   Extra columns to compute for every row, merged on top of the built-ins.
+ *   Each extractor follows the `async (metadata, context) => value` contract;
+ *   see columns.js. A key matching a built-in replaces it.
+ * @param {string[]} [options.sort] Row ordering: column names, each optionally
+ *   prefixed with `+` (ascending, the default) or `-` (descending), applied in
+ *   order. Defaults to ["-needsBump", "published", "-size"]; remaining ties
+ *   break by `workspace` then `name`.
+ * @param {boolean} [options.full=false] In a single-package repo the
+ *   `workspace` and `declared` columns are vestigial (every row would say
+ *   undefined/"root") and are dropped from the rows; pass true to keep them.
+ * @returns {Promise<Array<object>>} Array of dependency rows, ordered per
+ *   `sort`. Each row has the built-in fields (name, workspace, requested,
+ *   version, published, latest, latestBump, needsBump, size, uses, declared,
+ *   type) plus any custom columns; see `full` for the two fields omitted in
+ *   single-package repos.
  */
-export async function depreport({ dir = ".", log = () => {} } = {}) {
+export async function depreport({
+  dir = ".",
+  types = DEFAULT_TYPES,
+  columns = {},
+  sort = DEFAULT_SORT,
+  full = false,
+  log = () => {},
+} = {}) {
+  const scopedSections = sectionsForTypes(types);
+  const reportColumns = { ...BUILTIN_COLUMNS, ...columns };
   const startDir = path.resolve(dir);
   const repoRoot = findRepoRoot(startDir);
   log(`Repository root: ${repoRoot}`);
@@ -71,21 +98,30 @@ export async function depreport({ dir = ".", log = () => {} } = {}) {
     }
   }
 
+  // In a single-package repo every row would report the same workspace
+  // (undefined) and declared ("root"), so those columns are vestigial and
+  // dropped -- unless `full` asks for them, or the caller supplied their own
+  // extractor for one of them.
+  if (!full && workspaceManifests.length === 0) {
+    for (const vestigial of ["workspace", "declared"]) {
+      if (!(vestigial in columns)) {
+        delete reportColumns[vestigial];
+      }
+    }
+  }
+
   const npmConfig = loadNpmConfig(startDir, repoRoot);
 
   const rootDependencies = new Set();
   const rootDependencyMap = new Map();
-  for (const [name, version] of Object.entries(
-    rootManifest.dependencies || {},
-  )) {
-    rootDependencies.add(name);
-    rootDependencyMap.set(name, { version, declared: "root" });
-  }
-  for (const [name, version] of Object.entries(
-    rootManifest.devDependencies || {},
-  )) {
-    rootDependencies.add(name);
-    rootDependencyMap.set(name, { version, declared: "root" });
+  for (const { type, section } of scopedSections) {
+    for (const [name, version] of Object.entries(rootManifest[section] || {})) {
+      rootDependencies.add(name);
+      // Canonical order: the first section a package appears in wins.
+      if (!rootDependencyMap.has(name)) {
+        rootDependencyMap.set(name, { version, declared: "root", type });
+      }
+    }
   }
 
   const rows = [];
@@ -98,7 +134,7 @@ export async function depreport({ dir = ".", log = () => {} } = {}) {
     rootManifest,
     ...workspaceManifests.map((workspace) => workspace.manifest),
   ]) {
-    for (const section of ["dependencies", "devDependencies"]) {
+    for (const { section } of scopedSections) {
       for (const name of Object.keys(manifest[section] || {})) {
         if (!internalPackageNames.has(name)) {
           metadataTargets.add(name);
@@ -121,11 +157,18 @@ export async function depreport({ dir = ".", log = () => {} } = {}) {
     const dependencyNames = new Set();
     const declaredByWorkspace = new Map();
 
-    for (const section of ["dependencies", "devDependencies"]) {
+    for (const { type, section } of scopedSections) {
       const deps = manifest[section] || {};
       for (const [name, version] of Object.entries(deps)) {
         dependencyNames.add(name);
-        declaredByWorkspace.set(name, { version, declared: "subproject" });
+        // Canonical order: the first section a package appears in wins.
+        if (!declaredByWorkspace.has(name)) {
+          declaredByWorkspace.set(name, {
+            version,
+            declared: "subproject",
+            type,
+          });
+        }
       }
     }
 
@@ -141,6 +184,7 @@ export async function depreport({ dir = ".", log = () => {} } = {}) {
           declaredByWorkspace.set(dependencyName, {
             version: rootDependencyMap.get(dependencyName)?.version,
             declared: "root",
+            type: rootDependencyMap.get(dependencyName)?.type,
           });
         }
       }
@@ -154,6 +198,7 @@ export async function depreport({ dir = ".", log = () => {} } = {}) {
         rootDependencyMap.get(dependencyName) || {
           version: "",
           declared: "subproject",
+          type: "",
         };
       const workspaceLabel =
         workspace.workspaceLabel === "{root}"
@@ -187,80 +232,63 @@ export async function depreport({ dir = ".", log = () => {} } = {}) {
         version = installedManifest.version || version;
       }
       const requested = declared.version || "";
-      const size = packageDir
-        ? await getTransitivePackageSize(packageDir, repoRoot)
-        : 0;
-      const age = version
-        ? await fetchPublishedAt(dependencyName, version, npmConfig)
-        : "";
-      const latest =
-        dependencyName && !internalPackageNames.has(dependencyName)
-          ? await fetchLatestVersion(dependencyName, npmConfig)
-          : "";
-      const latestBump =
-        dependencyName && requested && !internalPackageNames.has(dependencyName)
-          ? await fetchLatestCompatibleVersion(
-              dependencyName,
-              requested,
-              npmConfig,
-            )
-          : "";
-      const latestVersion = parseVersion(latest);
-      const latestBumpVersion = parseVersion(latestBump);
-      const latestEffective =
-        latestBumpVersion &&
-        (!latestVersion ||
-          compareVersions(latestVersion, latestBumpVersion) < 0)
-          ? latestBump
-          : latest;
-      const needsBump =
-        version &&
-        latestBumpVersion &&
-        parseVersion(version) &&
-        compareVersions(parseVersion(version), latestBumpVersion) < 0
-          ? "✓"
-          : "";
       const isDeclaredBySubproject =
         workspace.workspaceLabel !== "{root}" &&
-        Boolean(
-          (manifest.dependencies && manifest.dependencies[dependencyName]) ||
-          (manifest.devDependencies &&
-            manifest.devDependencies[dependencyName]),
+        scopedSections.some(
+          ({ section }) =>
+            manifest[section] && manifest[section][dependencyName],
         );
+
+      // The metadata document each column extractor receives; already warmed
+      // by prefetchMetadata above, so this resolves from cache.
+      const metadata = await fetchNpmMetadata(dependencyName, npmConfig);
+
+      // Omit rows whose installed version already matches the version we would
+      // advise upgrading to. This is a report-level decision, independent of
+      // which columns are displayed.
       const currentVersion = parseVersion(version);
-      const latestEffectiveVersion = parseVersion(latestEffective);
+      const effectiveVersion = parseVersion(
+        latestEffective(metadata, requested),
+      );
       if (
         currentVersion &&
-        latestEffectiveVersion &&
-        compareVersions(currentVersion, latestEffectiveVersion) === 0
+        effectiveVersion &&
+        compareVersions(currentVersion, effectiveVersion) === 0
       ) {
         continue;
       }
 
-      rows.push({
+      const context = {
         name: dependencyName,
-        workspace: workspaceLabel,
+        // The root package has no workspace; workspaces carry their name.
+        workspace:
+          workspace.workspaceLabel === "{root}" ? undefined : workspaceLabel,
         requested,
         version,
-        age,
-        latest: latestEffective,
-        latestBump,
-        needsBump,
-        size,
-        uses,
         declared:
           workspace.workspaceLabel === "{root}"
             ? "root"
             : isDeclaredBySubproject
               ? "subproject"
               : "root",
-      });
+        type: declared.type || "",
+        uses,
+        packageDir,
+        repoRoot,
+        npmConfig,
+      };
+
+      const row = {};
+      for (const [columnName, extractor] of Object.entries(reportColumns)) {
+        row[columnName] = await extractor(metadata, context);
+      }
+      rows.push(row);
     }
   }
 
-  rows.sort((a, b) =>
-    `${a.workspace}:${a.name}`.localeCompare(`${b.workspace}:${b.name}`),
-  );
+  // workspace/name are appended as implicit final keys so rows the sort spec
+  // does not distinguish still come out in a deterministic order.
+  rows.sort(buildComparator([...sort, "workspace", "name"]));
 
   return rows;
 }

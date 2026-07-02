@@ -83,3 +83,18 @@ export function satisfiesRange(candidateVersion, rangeSpec) {
   if (!candidate || !base) return false;
   return compareVersions(candidate, base) === 0;
 }
+
+// Highest stable version in `versions` that satisfies `range`, or "" if none
+// do. Prereleases and unparseable entries are ignored.
+export function maxSatisfying(versions, range) {
+  const candidates = (versions || []).filter(
+    (candidate) => parseVersion(candidate) && isStableVersion(candidate),
+  );
+  candidates.sort((left, right) =>
+    compareVersions(parseVersion(left), parseVersion(right)),
+  );
+  return (
+    candidates.filter((candidate) => satisfiesRange(candidate, range)).pop() ||
+    ""
+  );
+}

@@ -4,9 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { depreport } from "../src/index.js";
+import { depreport, toCsv } from "../src/index.js";
 import { parseCliArgs, HELP_TEXT } from "../src/cli.js";
-import { toCsv } from "../src/csv.js";
 
 let args;
 try {
@@ -28,9 +27,13 @@ async function main() {
   // report when no --output file is given.
   const rows = await depreport({
     dir: args.dir,
+    types: args.types,
+    // null means "not given on the command line": let depreport default.
+    sort: args.sort ?? undefined,
+    full: args.full,
     log: (message) => console.error(message),
   });
-  const csv = toCsv(rows);
+  const csv = args.columns ? toCsv(rows, args.columns) : toCsv(rows);
 
   if (outputPath) {
     fs.writeFileSync(outputPath, csv, "utf8");
