@@ -14,6 +14,7 @@ test("parseCliArgs: defaults to '.' with no output, no help, and main+dev types"
     full: false,
     quiet: false,
     format: DEFAULT_FORMAT,
+    hard: false,
   });
 });
 
@@ -43,6 +44,7 @@ test("parseCliArgs: combines an option and a positional", () => {
     full: false,
     quiet: false,
     format: DEFAULT_FORMAT,
+    hard: false,
   });
 });
 
@@ -132,6 +134,12 @@ test("parseCliArgs: throws on an unrecognized --format value", () => {
   assert.throws(() => parseCliArgs(["--format", "xml"]), /Unknown format: xml/);
 });
 
+test("parseCliArgs: recognizes --hard and its -H alias", () => {
+  assert.equal(parseCliArgs([]).hard, false);
+  assert.equal(parseCliArgs(["--hard"]).hard, true);
+  assert.equal(parseCliArgs(["-H"]).hard, true);
+});
+
 test("parseCliArgs: throws on a sort key naming an unknown column", () => {
   assert.throws(
     () => parseCliArgs(["--sort", "name,-bogus"]),
@@ -154,6 +162,7 @@ test("HELP_TEXT: describes usage and the options", () => {
   assert.match(HELP_TEXT, /--sort/);
   assert.match(HELP_TEXT, /--full/);
   assert.match(HELP_TEXT, /--format/);
+  assert.match(HELP_TEXT, /--hard/);
   assert.match(HELP_TEXT, /--quiet/);
   assert.match(HELP_TEXT, /--help/);
 });

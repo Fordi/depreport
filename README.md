@@ -50,6 +50,10 @@ Usage: depreport [options] [dir]
                        package: an install command (detected package
                        manager, e.g. npm/yarn/pnpm/bun) for every
                        dependency needing an in-range bump
+  -H, --hard           Like --format=package, but includes any dependency
+                       whose version doesn't match latest (not just
+                       in-range bumps), one dependency per line, pinned
+                       to latest instead of latestBump. Overrides --format
   -q, --quiet          Suppress progress messages on stderr
   -h, --help           Show this help
 ```
@@ -92,6 +96,9 @@ depreport --format json
 # needs an in-range bump
 depreport --format package
 depreport -F package | sh
+
+# Same, but include out-of-range/breaking upgrades too, one per line
+depreport --hard
 ```
 
 ### Sample output
@@ -179,6 +186,17 @@ This can be piped directly into bash, for a fast upgrade:
 
 ```bash
 depreport --format package | bash
+```
+
+`--hard` (`-H`) is a variant of `package` format for riskier upgrades: instead of only rows with `needsBump: true` batched into one command per location, it includes **every** row whose installed version doesn't match `latest` — including bumps that fall outside the declared range (e.g. already at the newest `1.x` release under `^1.0.0`, but `2.0.0` is out) — pinned to `latest` rather than `latestBump`, and emitted **one command per dependency** rather than batched, so each can be reviewed or run independently. `--hard` overrides `--format` (it doesn't make sense combined with `csv`/`json`).
+
+```bash
+depreport --hard
+```
+
+```plain
+npm install @types/node@^26.1.0
+npm install chalk@^5.4.1 --workspace=api
 ```
 
 ## Monorepos / workspaces

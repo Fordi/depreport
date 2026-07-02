@@ -214,6 +214,102 @@ test("toUpdateCommand: dedupes a dependency shared across workspace-attribution 
   assert.deepEqual(toUpdateCommand(rows), ["npm install leftpad@^1.2.0"]);
 });
 
+test("toUpdateCommand: hard mode includes an out-of-range dependency that needsBump ignores", () => {
+  // Pinned to ^1.x, already at the highest in-range version, but 2.x is out.
+  const rows = [
+    {
+      name: "leftpad",
+      requested: "^1.0.0",
+      version: "1.9.9",
+      needsBump: false,
+      latestBump: "1.9.9",
+      latest: "2.0.0",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), []);
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
+    "npm install leftpad@^2.0.0",
+  ]);
+});
+
+test("toUpdateCommand: hard mode also includes an indeterminate (null) needsBump row", () => {
+  const rows = [
+    {
+      name: "leftpad",
+      requested: "^1.0.0",
+      version: "not-semver",
+      needsBump: null,
+      latest: "2.0.0",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), []);
+});
+
+test("toUpdateCommand: hard mode excludes a row already at latest", () => {
+  const rows = [
+    {
+      name: "leftpad",
+      requested: "^1.0.0",
+      version: "1.9.9",
+      needsBump: false,
+      latest: "1.9.9",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), []);
+});
+
+test("toUpdateCommand: hard mode emits one command per dependency, not batched", () => {
+  const rows = [
+    {
+      name: "a",
+      requested: "^1.0.0",
+      version: "1.0.0",
+      needsBump: true,
+      latestBump: "1.5.0",
+      latest: "1.5.0",
+    },
+    {
+      name: "b",
+      requested: "^1.0.0",
+      version: "1.0.0",
+      needsBump: false,
+      latestBump: "1.0.0",
+      latest: "3.0.0",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
+    "npm install a@^1.5.0",
+    "npm install b@^3.0.0",
+  ]);
+});
+
+test("toUpdateCommand: hard mode still routes each line to the right workspace", () => {
+  const rows = [
+    {
+      name: "a",
+      requested: "^1.0.0",
+      version: "1.0.0",
+      needsBump: false,
+      latest: "2.0.0",
+      declared: "subproject",
+      workspace: "app",
+    },
+    {
+      name: "b",
+      requested: "^1.0.0",
+      version: "1.0.0",
+      needsBump: false,
+      latest: "2.0.0",
+      declared: "root",
+      workspace: "app",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
+    "npm install b@^2.0.0",
+    "npm install a@^2.0.0 --workspace=app",
+  ]);
+});
+
 test("toUpdateCommand: returns an empty array when nothing needs a bump", () => {
   const rows = [
     {

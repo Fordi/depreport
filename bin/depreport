@@ -49,13 +49,17 @@ async function main() {
 }
 
 function renderOutput(args, rows) {
-  switch (args.format) {
+  // --hard overrides --format: it's the "package" format's hard-update
+  // variant, so it doesn't make sense combined with csv/json.
+  const format = args.hard ? "package" : args.format;
+  switch (format) {
     case "json":
       return `${JSON.stringify(rows, null, 2)}\n`;
     case "package": {
       const repoRoot = findRepoRoot(path.resolve(args.dir));
       const commands = toUpdateCommand(rows, detectPackageManager(repoRoot), {
         isMonorepo: hasWorkspaces(repoRoot),
+        hard: args.hard,
       });
       return commands.length ? `${commands.join("\n")}\n` : "";
     }

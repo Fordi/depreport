@@ -100,6 +100,19 @@ test("bin: --format package emits nothing when no dependency needs a bump", () =
   assert.equal(result.stdout, "");
 });
 
+test("bin: --hard emits nothing when there's nothing to update", () => {
+  const result = run(["--hard", emptyProject()]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("bin: -H is the short alias for --hard, and overrides --format", () => {
+  const result = run(["--format", "csv", "-H", emptyProject()]);
+  assert.equal(result.status, 0);
+  // --hard forces "package" output even though --format csv was also given.
+  assert.equal(result.stdout, "");
+});
+
 test("bin: an unrecognized --format value exits 1 with a message on stderr", () => {
   const result = run(["--format", "xml", emptyProject()]);
   assert.equal(result.status, 1);

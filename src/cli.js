@@ -28,6 +28,10 @@ export const HELP_TEXT = [
   "                       package: an install command (detected package",
   "                       manager, e.g. npm/yarn/pnpm/bun) for every",
   "                       dependency needing an in-range bump",
+  "  -H, --hard           Like --format=package, but includes any dependency",
+  "                       whose version doesn't match latest (not just",
+  "                       in-range bumps), one dependency per line, pinned",
+  "                       to latest instead of latestBump. Overrides --format",
   "  -q, --quiet          Suppress progress messages on stderr",
   "  -h, --help           Show this help",
 ].join("\n");
@@ -39,14 +43,16 @@ export const HELP_TEXT = [
  *   `process.argv.slice(2)`).
  * @returns {{ help: boolean, output: string | null, dir: string,
  *   types: string[], columns: string[] | null, sort: string[] | null,
- *   full: boolean, quiet: boolean, format: "csv" | "json" | "package" }}
+ *   full: boolean, quiet: boolean, format: "csv" | "json" | "package",
+ *   hard: boolean }}
  *   Normalized options: whether help was requested, the raw `--output` path
  *   (or null for stdout), the starting directory (defaulting to "."), the
  *   dependency types to include (defaulting to DEFAULT_TYPES), the columns to
  *   emit (null = all), the sort keys (null = depreport's default order),
  *   whether to keep the vestigial single-package columns, whether to
- *   suppress progress messages, and the output format (defaulting to
- *   DEFAULT_FORMAT).
+ *   suppress progress messages, the output format (defaulting to
+ *   DEFAULT_FORMAT), and whether --hard was given (forces the "package"
+ *   format's hard-update variant regardless of --format).
  * @throws {TypeError} If an unknown option is passed or a value is missing.
  * @throws {Error} If `--types`, `--columns`, `--sort`, or `--format` includes
  *   an unrecognized value.
@@ -61,6 +67,7 @@ export function parseCliArgs(argv) {
       sort: { type: "string", short: "s", multiple: true },
       full: { type: "boolean", short: "f" },
       format: { type: "string", short: "F" },
+      hard: { type: "boolean", short: "H" },
       quiet: { type: "boolean", short: "q" },
       help: { type: "boolean", short: "h" },
     },
@@ -76,6 +83,7 @@ export function parseCliArgs(argv) {
     full: Boolean(values.full),
     quiet: Boolean(values.quiet),
     format: parseFormat(values.format),
+    hard: Boolean(values.hard),
   };
 }
 
