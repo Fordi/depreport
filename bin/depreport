@@ -25,6 +25,7 @@ if (args.help) {
 
 async function main() {
   const outputPath = args.output ? path.resolve(args.output) : null;
+  const format = outputFormat(args);
 
   // Progress/diagnostic messages go to stderr so stdout carries only the
   // report when no --output file is given; --quiet drops them entirely
@@ -36,9 +37,12 @@ async function main() {
     // null means "not given on the command line": let depreport default.
     sort: args.sort ?? undefined,
     full: args.full,
+    transitive: args.transitive,
+    transitiveOnly: args.transitiveOnly,
+    includeSize: format === "csv",
     log,
   });
-  const output = renderOutput(args, rows);
+  const output = renderOutput(format, args, rows);
 
   if (outputPath) {
     fs.writeFileSync(outputPath, output, "utf8");
@@ -48,10 +52,13 @@ async function main() {
   }
 }
 
-function renderOutput(args, rows) {
+function outputFormat(args) {
   // --hard overrides --format: it's the "package" format's hard-update
   // variant, so it doesn't make sense combined with csv/json.
-  const format = args.hard ? "package" : args.format;
+  return args.hard ? "package" : args.format;
+}
+
+function renderOutput(format, args, rows) {
   switch (format) {
     case "json":
       return `${JSON.stringify(rows, null, 2)}\n`;

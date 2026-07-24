@@ -15,10 +15,11 @@ import { parseVersion, compareVersions, maxSatisfying } from "./version.js";
  *        packageDir, repoRoot, npmConfig }
  *    where `name` is the package name, `workspace` its display label,
  *    `requested` the declared range, `version` the installed (or declared)
- *    version, `declared` "root"|"subproject", `type` the dependency type,
- *    `uses` the import count, `packageDir` the resolved install dir (or null),
- *    `repoRoot` the project root, and `npmConfig` the resolved npm config (for
- *    columns that need to reach the registry themselves).
+ *    version, `declared` "root"|"subproject"|"transitive", `type` the
+ *    dependency type, `uses` the import count, `packageDir` the resolved
+ *    install dir (or null), `repoRoot` the project root, and `npmConfig` the
+ *    resolved npm config (for columns that need to reach the registry
+ *    themselves).
  *
  * @typedef {(metadata: object|null, context: object) =>
  *   (string|number|boolean|null|Promise<string|number|boolean|null>)} ColumnExtractor

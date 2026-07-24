@@ -136,6 +136,105 @@ test("toUpdateCommand: a subproject-declared dependency installs scoped to its w
   ]);
 });
 
+test("toUpdateCommand: a transitive dependency installs at the root", () => {
+  const rows = [
+    {
+      name: "glob-parent",
+      requested: "6.0.2",
+      needsBump: true,
+      latestBump: "6.0.3",
+      declared: "transitive",
+      workspace: "app",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), ["overrideTransitive glob-parent@6.0.3"]);
+});
+
+test("toUpdateCommand: yarn transitive dependencies emit overrideTransitive", () => {
+  const rows = [
+    {
+      name: "glob-parent",
+      requested: "^6.0.2",
+      needsBump: true,
+      latestBump: "6.0.3",
+      declared: "transitive",
+      workspace: "app",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
+    "overrideTransitive glob-parent@^6.0.3",
+  ]);
+});
+
+test("toUpdateCommand: transitive override commands are deduped", () => {
+  const rows = [
+    {
+      name: "glob-parent",
+      requested: "^6.0.2",
+      needsBump: true,
+      latestBump: "6.0.3",
+      declared: "transitive",
+      workspace: "app",
+    },
+    {
+      name: "glob-parent",
+      requested: "^6.0.2",
+      needsBump: true,
+      latestBump: "6.0.3",
+      declared: "transitive",
+      workspace: "web",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
+    "overrideTransitive glob-parent@^6.0.3",
+  ]);
+});
+
+test("toUpdateCommand: hard mode emits one transitive override command per dependency", () => {
+  const rows = [
+    {
+      name: "glob-parent",
+      requested: "^6.0.2",
+      version: "6.0.2",
+      latest: "6.0.3",
+      declared: "transitive",
+    },
+    {
+      name: "minimatch",
+      requested: "^9.0.0",
+      version: "9.0.0",
+      latest: "10.0.0",
+      declared: "transitive",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
+    "overrideTransitive glob-parent@^6.0.3",
+    "overrideTransitive minimatch@^10.0.0",
+  ]);
+});
+
+test("toUpdateCommand: transitive override specs preserve ~= and >= operators", () => {
+  const rows = [
+    {
+      name: "a",
+      requested: "~1.0.0",
+      needsBump: true,
+      latestBump: "1.2.0",
+      declared: "transitive",
+    },
+    {
+      name: "b",
+      requested: ">=2.0.0",
+      needsBump: true,
+      latestBump: "2.3.0",
+      declared: "transitive",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), [
+    "overrideTransitive a@~1.2.0 b@>=2.3.0",
+  ]);
+});
+
 test("toUpdateCommand: emits one command per install location, root first then workspaces sorted", () => {
   const rows = [
     {

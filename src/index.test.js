@@ -341,6 +341,122 @@ test("depreport: honors the types option and reports the declaring section", asy
   }
 });
 
+test("depreport: transitive and transitive-only include nested dependencies", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-transitive-")),
+  );
+  try {
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "transitive-proj",
+        dependencies: { appdep: "^1.0.0" },
+      }),
+    );
+    write(root, "index.js", 'import appdep from "appdep";\n');
+    installPackage(root, "appdep", "1.0.0");
+    // appdep depends on nesteddep; nesteddep is not directly declared.
+    write(
+      root,
+      "node_modules/appdep/package.json",
+      JSON.stringify({
+        name: "appdep",
+        version: "1.0.0",
+        dependencies: { nesteddep: "^1.0.0" },
+      }),
+    );
+    installPackage(root, "nesteddep", "1.0.0");
+
+    serve({ appdep: outdatedDoc(), nesteddep: outdatedDoc() });
+
+    const withoutTransitive = await depreport({ dir: root });
+    assert.ok(findRow(withoutTransitive, "appdep", undefined));
+    assert.equal(findRow(withoutTransitive, "nesteddep", undefined), undefined);
+
+    const withTransitive = await depreport({
+      dir: root,
+      full: true,
+      transitive: true,
+    });
+    const nested = findRow(withTransitive, "nesteddep", undefined);
+    assert.ok(nested);
+    assert.equal(nested.declared, "transitive");
+    assert.equal(nested.type, "main");
+    assert.ok(findRow(withTransitive, "appdep", undefined));
+
+    const transitiveOnly = await depreport({
+      dir: root,
+      transitiveOnly: true,
+    });
+    assert.deepEqual(transitiveOnly.map((row) => row.name), ["nesteddep"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("depreport: includeSize=false omits the built-in size column", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-nosize-")),
+  );
+  try {
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "nosize-proj",
+        dependencies: { appdep: "^1.0.0" },
+      }),
+    );
+    write(root, "index.js", 'import appdep from "appdep";\n');
+    installPackage(root, "appdep", "1.0.0");
+    serve({ appdep: outdatedDoc() });
+
+    const [withSize] = await depreport({ dir: root, full: true });
+    assert.equal("size" in withSize, true);
+
+    const [withoutSize] = await depreport({
+      dir: root,
+      full: true,
+      includeSize: false,
+    });
+    assert.equal("size" in withoutSize, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("depreport: includeSize=false keeps an explicit custom size extractor", async () => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-nosize-custom-")),
+  );
+  try {
+    write(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "nosize-custom-proj",
+        dependencies: { appdep: "^1.0.0" },
+      }),
+    );
+    write(root, "index.js", 'import appdep from "appdep";\n');
+    installPackage(root, "appdep", "1.0.0");
+    serve({ appdep: outdatedDoc() });
+
+    const [row] = await depreport({
+      dir: root,
+      full: true,
+      includeSize: false,
+      columns: {
+        size: () => 42,
+      },
+    });
+    assert.equal(row.size, 42);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("depreport: supports custom columns with the (metadata, context) contract", async () => {
   const root = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), "depreport-cols-")),

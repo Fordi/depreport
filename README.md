@@ -44,6 +44,8 @@ Usage: depreport [options] [dir]
                        starts with - (default: -needsBump,published,-size)
   -f, --full           Keep the workspace/declared columns even in a
                        single-package repo (they are dropped by default)
+  -T, --transitive     Include transitive dependencies in report rows
+  -O, --transitive-only Only include transitive dependencies
   -F, --format <fmt>   Output format: csv, json, package (default: csv)
                        csv: the dependency report as CSV
                        json: the report rows as JSON
@@ -80,6 +82,12 @@ depreport ./packages/app -o report.csv
 
 # Include peer and optional dependencies as well
 depreport -t main,peer,optional
+
+# Include transitive dependencies too (useful for overrides/resolutions)
+depreport --transitive
+
+# Only transitive dependencies
+depreport --transitive-only
 
 # Emit only a subset of columns, in the order you specify
 depreport -c name,version,latest,needsBump
@@ -120,20 +128,18 @@ Fields are quoted only when they need it (values containing a comma or a double-
 
 ## Columns
 
-| Column       | Meaning                                                                                                    |
-| ------------ | ---------------------------------------------------------------------------------------------------------- |
-| `name`       | Package name.                                                                                              |
-| `workspace`  | `{root}` for the root package, otherwise the workspace package's name. Omitted in single-package repos.    |
-| `requested`  | The version range declared in the manifest (e.g. `^1.2.0`).                                                |
-| `version`    | The installed version (read from `node_modules`), falling back to the requested range if not installed.    |
-| `published`  | The registry publish timestamp of the installed `version`.                                                 |
-| `latest`     | The version to upgrade to: the newer of the `latest` dist-tag and the newest in-range published release.   |
-| `latestBump` | The highest **stable** published version that still satisfies `requested` (an in-range upgrade).           |
-| `needsBump`  | `✓` when the installed version is behind `latestBump`, `?` when that cannot be determined, else empty.     |
-| `size`       | Transitive on-disk size, in bytes, of the installed package and its dependency closure.                    |
-| `uses`       | Number of `import`/`require`/dynamic-`import` references to the package found in the workspace's source.   |
-| `declared`   | `root` if from the root manifest, `subproject` if from a workspace's own. Omitted in single-package repos. |
-| `type`       | Which manifest section declared it: `main`, `dev`, `peer`, or `optional`.                                  |
+- `name`: Package name.
+- `workspace`: `{root}` for the root package, otherwise the workspace package's name. Omitted in single-package repos.
+- `requested`: The version range declared in the manifest (e.g. `^1.2.0`).
+- `version`: The installed version (read from `node_modules`), falling back to the requested range if not installed.
+- `published`: The registry publish timestamp of the installed `version`.
+- `latest`: The version to upgrade to: the newer of the `latest` dist-tag and the newest in-range published release.
+- `latestBump`: The highest **stable** published version that still satisfies `requested` (an in-range upgrade).
+- `needsBump`: `✓` when the installed version is behind `latestBump`, `?` when that cannot be determined, else empty.
+- `size`: Transitive on-disk size, in bytes, of the installed package and its dependency closure.
+- `uses`: Number of `import`/`require`/dynamic-`import` references to the package found in the workspace's source.
+- `declared`: `root` if from the root manifest, `subproject` if from a workspace's own, `transitive` if only reached through another dependency. Omitted in single-package repos.
+- `type`: Which manifest section declared it: `main`, `dev`, `peer`, or `optional`.
 
 Range handling for `latest`/`latestBump`/`needsBump` understands caret (`^`),
 tilde (`~`), and exact versions; prereleases are excluded from upgrade suggestions.
@@ -168,8 +174,27 @@ Cells with no value (for example `published` when the registry document is missi
 `--format` (`-F`) selects what depreport prints, in place of the CSV report:
 
 - `csv` (default) — the dependency report as CSV, as described above.
-- `json` — `JSON.stringify(rows, null, 2)`: the same row objects the JavaScript API returns, so `published` is an ISO string and `workspace: undefined` fields are simply absent from the output (JSON has no `undefined`).
-- `package` — one or more shell commands that install every dependency with `needsBump: true`, pinned to `latestBump` with the same `^`/`~` leader as the manifest's `requested` range (so `^1.2.0` stays a caret range, not an exact pin). In a monorepo, a dependency declared by a workspace's own manifest gets a command scoped to that workspace (`--workspace=<name>` for npm, `yarn workspace <name> add ...` for yarn, `--filter <name>` for pnpm/bun); a dependency declared at the root — even if only reported because a workspace happens to use it — is installed once at the root, using `add` rather than `install` for yarn (which doesn't accept package specs on `install`) with `-W` appended whenever the repo declares workspaces (yarn otherwise refuses to touch the root manifest). `--columns` and `--sort` are ignored for `json`/`package` (there's nothing to select or order).
+- `json` — `JSON.stringify(rows, null, 2)`: the same row objects the JavaScript API returns, so `published` is an ISO string and `workspace: undefined` fields are simply absent from the output (JSON has no `undefined`). For speed, the CLI skips `size` calculation in this format.
+- `package` — one or more shell commands that install every dependency with `needsBump: true`, pinned to `latestBump` with the same `^`/`~` leader as the manifest's `requested` range (so `^1.2.0` stays a caret range, not an exact pin). In a monorepo, a dependency declared by a workspace's own manifest gets a command scoped to that workspace (`--workspace=<name>` for npm, `yarn workspace <name> add ...` for yarn, `--filter <name>` for pnpm/bun); a dependency declared at the root — even if only reported because a workspace happens to use it — is installed once at the root, using `add` rather than `install` for yarn (which doesn't accept package specs on `install`) with `-W` appended whenever the repo declares workspaces (yarn otherwise refuses to touch the root manifest). For speed, the CLI skips `size` calculation in this format. `--columns` and `--sort` are ignored for `json`/`package` (there's nothing to select or order).
+
+When a row is `declared: transitive`, `--format package` emits `overrideTransitive ...` instead of an install/add command, because transitive updates belong in root `resolutions`/`overrides` rather than direct dependencies.
+
+### Transitive override helper
+
+`overrideTransitive` updates the root `package.json` with transitive pins:
+
+- `yarn` projects: writes `resolutions`
+- `npm`/`pnpm`/`bun` projects: writes `overrides`
+
+Arguments are a list of specs in this form:
+
+- `({scope}/)?{package}@{rangeSpec}`
+
+Examples:
+
+```bash
+overrideTransitive left-pad@1.3.0 @types/node@^22.0.0
+```
 
 ```bash
 depreport --format package
@@ -218,6 +243,9 @@ const rows = await depreport({
   types: ["main", "dev"], // default
   sort: ["-needsBump", "published", "-size"], // default
   full: false, // default: drop workspace/declared in single-package repos
+  transitive: false, // default: only direct dependencies
+  transitiveOnly: false, // default
+  includeSize: true, // default
   log: (message) => process.stderr.write(`${message}\n`),
 });
 
@@ -245,18 +273,20 @@ console.log(rows);
 
 In a repo with workspaces (or with `full: true`), rows additionally carry
 `workspace` (the workspace package's name, or `undefined` for the root —
-rendered `{root}` in the CSV) and `declared` (`"root"` | `"subproject"`).
+rendered `{root}` in the CSV) and `declared` (`"root"` | `"subproject"` |
+`"transitive"`).
 
 ### Options
 
-| Option    | Type                                    | Default                              | Description                                                    |
-| --------- | --------------------------------------- | ------------------------------------ | -------------------------------------------------------------- |
-| `dir`     | `string`                                | `"."`                                | Any path inside the project; the report is built for its root. |
-| `types`   | `("main"\|"dev"\|"peer"\|"optional")[]` | `["main","dev"]`                     | Which manifest sections to include.                            |
-| `columns` | `Record<string, ColumnExtractor>`       | `{}`                                 | Extra columns, merged on top of the built-ins (see below).     |
-| `sort`    | `` `${"+"\|"-"\|""}${column}`[] ``      | `["-needsBump","published","-size"]` | Row ordering (see "Sort order" above).                         |
-| `full`    | `boolean`                               | `false`                              | Keep `workspace`/`declared` even in a single-package repo.     |
-| `log`     | `(message: string) => void`             | no-op                                | Sink for progress messages (repo root, manifests, workspaces). |
+- `dir` (`string`, default `"."`) any path inside the project; the report is built for its root.
+- `types` (`("main"|"dev"|"peer"|"optional")[]`, default `["main","dev"]`) which manifest sections to include.
+- `columns` (`Record<string, ColumnExtractor>`, default `{}`) extra columns, merged on top of the built-ins (see below).
+- `sort` (`` `${"+"|"-"|""}${column}`[] ``, default `["-needsBump","published","-size"]`) row ordering (see "Sort order" above).
+- `full` (`boolean`, default `false`) keep `workspace`/`declared` even in a single-package repo.
+- `transitive` (`boolean`, default `false`) include transitive dependencies reached from selected direct dependencies.
+- `transitiveOnly` (`boolean`, default `false`) only report transitive dependencies.
+- `includeSize` (`boolean`, default `true`) include built-in `size`; set `false` to skip expensive transitive size traversal.
+- `log` (`(message: string) => void`, default no-op) sink for progress messages (repo root, manifests, workspaces).
 
 ### Custom columns
 
@@ -283,7 +313,7 @@ type ColumnExtractor = (
     workspace,   // workspace package name, or undefined for the root
     requested,   // declared version range
     version,     // installed (or declared) version
-    declared,    // "root" | "subproject"
+    declared,    // "root" | "subproject" | "transitive"
     type,        // "main" | "dev" | "peer" | "optional"
     uses,        // import count in the workspace's source
     packageDir,  // resolved install directory, or null

@@ -12,6 +12,8 @@ test("parseCliArgs: defaults to '.' with no output, no help, and main+dev types"
     columns: null,
     sort: null,
     full: false,
+    transitive: false,
+    transitiveOnly: false,
     quiet: false,
     format: DEFAULT_FORMAT,
     hard: false,
@@ -42,10 +44,30 @@ test("parseCliArgs: combines an option and a positional", () => {
     columns: null,
     sort: null,
     full: false,
+    transitive: false,
+    transitiveOnly: false,
     quiet: false,
     format: DEFAULT_FORMAT,
     hard: false,
   });
+});
+
+test("parseCliArgs: recognizes --transitive and its -T alias", () => {
+  assert.equal(parseCliArgs([]).transitive, false);
+  assert.equal(parseCliArgs(["--transitive"]).transitive, true);
+  assert.equal(parseCliArgs(["-T"]).transitive, true);
+});
+
+test("parseCliArgs: recognizes --transitive-only and its -O alias", () => {
+  assert.equal(parseCliArgs([]).transitiveOnly, false);
+  assert.equal(parseCliArgs(["--transitive-only"]).transitiveOnly, true);
+  assert.equal(parseCliArgs(["-O"]).transitiveOnly, true);
+});
+
+test("parseCliArgs: --transitive-only implies transitive", () => {
+  const args = parseCliArgs(["--transitive-only"]);
+  assert.equal(args.transitiveOnly, true);
+  assert.equal(args.transitive, true);
 });
 
 test("parseCliArgs: reads --types as a comma-separated list", () => {
@@ -161,6 +183,8 @@ test("HELP_TEXT: describes usage and the options", () => {
   assert.match(HELP_TEXT, /--types/);
   assert.match(HELP_TEXT, /--sort/);
   assert.match(HELP_TEXT, /--full/);
+  assert.match(HELP_TEXT, /--transitive/);
+  assert.match(HELP_TEXT, /--transitive-only/);
   assert.match(HELP_TEXT, /--format/);
   assert.match(HELP_TEXT, /--hard/);
   assert.match(HELP_TEXT, /--quiet/);

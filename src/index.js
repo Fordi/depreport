@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { findRepoRoot } from "./repoRoot.js";
@@ -14,6 +15,57 @@ import { DEFAULT_SORT, buildComparator } from "./sort.js";
 // CSV rendering is part of the public API: rows from depreport() feed straight
 // into toCsv(), so consumers get both from the package root.
 export { toCsv, REPORT_COLUMNS, REPORT_FORMATTERS } from "./csv.js";
+
+const ROW_CONCURRENCY = Number(
+  process.env.DEPREPORT_ROW_CONCURRENCY || os.cpus().length - 1,
+);
+
+// Walk the installed dependency graph reachable from `seedNames` and return
+// the packages that are not direct seed dependencies.
+function collectTransitiveDependencyMap(
+  seedNames,
+  fromDirs,
+  repoRoot,
+  internalPackageNames,
+) {
+  const seedSet = new Set(seedNames);
+  const visited = new Set(seedNames);
+  const queue = [...seedNames];
+  const transitive = new Map();
+
+  while (queue.length > 0) {
+    const name = queue.shift();
+    const packageDir = resolveInstalledPackageDir(name, fromDirs, repoRoot);
+    if (!packageDir) {
+      continue;
+    }
+    const manifestPath = path.join(packageDir, "package.json");
+    if (!fs.existsSync(manifestPath)) {
+      continue;
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const deps = manifest.dependencies || {};
+    for (const [depName, depRange] of Object.entries(deps)) {
+      if (internalPackageNames.has(depName)) {
+        continue;
+      }
+      if (!visited.has(depName)) {
+        visited.add(depName);
+        queue.push(depName);
+      }
+      if (seedSet.has(depName) || transitive.has(depName)) {
+        continue;
+      }
+      transitive.set(depName, {
+        version: depRange,
+        declared: "transitive",
+        type: "main",
+      });
+    }
+  }
+
+  return transitive;
+}
 
 /**
  * Build a dependency report for the project (or monorepo) containing `dir`.
@@ -43,6 +95,12 @@ export { toCsv, REPORT_COLUMNS, REPORT_FORMATTERS } from "./csv.js";
  * @param {boolean} [options.full=false] In a single-package repo the
  *   `workspace` and `declared` columns are vestigial (every row would say
  *   undefined/"root") and are dropped from the rows; pass true to keep them.
+ * @param {boolean} [options.transitive=false] Include transitive
+ *   dependencies reached from the selected declared dependencies.
+ * @param {boolean} [options.transitiveOnly=false] Include only transitive
+ *   dependencies (direct dependencies are still used as traversal roots).
+ * @param {boolean} [options.includeSize=true] Include the built-in `size`
+ *   column extractor. Set false to skip transitive on-disk size computation.
  * @returns {Promise<Array<object>>} Array of dependency rows, ordered per
  *   `sort`. Each row has the built-in fields (name, workspace, requested,
  *   version, published, latest, latestBump, needsBump, size, uses, declared,
@@ -55,10 +113,17 @@ export async function depreport({
   columns = {},
   sort = DEFAULT_SORT,
   full = false,
+  transitive = false,
+  transitiveOnly = false,
+  includeSize = true,
   log = () => {},
 } = {}) {
+  const includeTransitive = transitive || transitiveOnly;
   const scopedSections = sectionsForTypes(types);
   const reportColumns = { ...BUILTIN_COLUMNS, ...columns };
+  if (!includeSize && !("size" in columns)) {
+    delete reportColumns.size;
+  }
   const startDir = path.resolve(dir);
   const repoRoot = findRepoRoot(startDir);
   log(`Repository root: ${repoRoot}`);
@@ -124,26 +189,7 @@ export async function depreport({
     }
   }
 
-  const rows = [];
-  const seenRows = new Set();
-
-  // Collect every external package we might query and warm the registry
-  // caches in parallel before the sequential row-building pass below.
-  const metadataTargets = new Set();
-  for (const manifest of [
-    rootManifest,
-    ...workspaceManifests.map((workspace) => workspace.manifest),
-  ]) {
-    for (const { section } of scopedSections) {
-      for (const name of Object.keys(manifest[section] || {})) {
-        if (!internalPackageNames.has(name)) {
-          metadataTargets.add(name);
-        }
-      }
-    }
-  }
-  await prefetchMetadata([...metadataTargets], npmConfig);
-
+  const workspaceContexts = [];
   for (const workspace of [
     {
       workspaceLabel: "{root}",
@@ -165,7 +211,8 @@ export async function depreport({
         if (!declaredByWorkspace.has(name)) {
           declaredByWorkspace.set(name, {
             version,
-            declared: "subproject",
+            declared:
+              workspace.workspaceLabel === "{root}" ? "root" : "subproject",
             type,
           });
         }
@@ -197,16 +244,67 @@ export async function depreport({
       }
     }
 
+    if (includeTransitive) {
+      const directNames = [...dependencyNames];
+      const fromDirs =
+        workspace.workspaceLabel === "{root}"
+          ? [repoRoot]
+          : [workspaceDir, repoRoot];
+      const transitives = collectTransitiveDependencyMap(
+        directNames,
+        fromDirs,
+        repoRoot,
+        internalPackageNames,
+      );
+      for (const [name, info] of transitives) {
+        if (!dependencyNames.has(name)) {
+          dependencyNames.add(name);
+        }
+        if (!declaredByWorkspace.has(name)) {
+          declaredByWorkspace.set(name, info);
+        }
+      }
+      if (transitiveOnly) {
+        for (const name of directNames) {
+          dependencyNames.delete(name);
+        }
+      }
+    }
+
+    workspaceContexts.push({
+      workspace,
+      manifest,
+      workspaceDir,
+      dependencyNames,
+      declaredByWorkspace,
+    });
+  }
+
+  // Collect every external package we'll query, including discovered
+  // transitive dependencies, and warm metadata caches up front.
+  const metadataTargets = new Set();
+  for (const { dependencyNames } of workspaceContexts) {
+    for (const name of dependencyNames) {
+      if (!internalPackageNames.has(name)) {
+        metadataTargets.add(name);
+      }
+    }
+  }
+  await prefetchMetadata([...metadataTargets], npmConfig);
+
+  const candidates = [];
+  const seenRows = new Set();
+  for (const {
+    workspace,
+    manifest,
+    workspaceDir,
+    dependencyNames,
+    declaredByWorkspace,
+  } of workspaceContexts) {
     for (const dependencyName of dependencyNames) {
       if (internalPackageNames.has(dependencyName)) {
         continue;
       }
-      const declared = declaredByWorkspace.get(dependencyName) ||
-        rootDependencyMap.get(dependencyName) || {
-          version: "",
-          declared: "subproject",
-          type: "",
-        };
       const workspaceLabel =
         workspace.workspaceLabel === "{root}"
           ? "{root}"
@@ -216,82 +314,105 @@ export async function depreport({
         continue;
       }
       seenRows.add(rowKey);
-
-      const uses = countUses(
+      candidates.push({
+        dependencyName,
+        workspace,
+        workspaceLabel,
         workspaceDir,
-        dependencyName,
-        workspace.workspaceLabel,
-      );
-      let version = declared.version || "";
-      const fromDirs =
-        workspace.workspaceLabel === "{root}"
-          ? [repoRoot]
-          : [workspaceDir, repoRoot];
-      const packageDir = resolveInstalledPackageDir(
-        dependencyName,
-        fromDirs,
-        repoRoot,
-      );
-      if (packageDir && fs.existsSync(path.join(packageDir, "package.json"))) {
-        const installedManifest = JSON.parse(
-          fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
-        );
-        version = installedManifest.version || version;
-      }
-      const requested = declared.version || "";
-      const isDeclaredBySubproject =
-        workspace.workspaceLabel !== "{root}" &&
-        scopedSections.some(
-          ({ section }) =>
-            manifest[section] && manifest[section][dependencyName],
-        );
-
-      // The metadata document each column extractor receives; already warmed
-      // by prefetchMetadata above, so this resolves from cache.
-      const metadata = await fetchNpmMetadata(dependencyName, npmConfig);
-
-      // Omit rows whose installed version already matches the version we would
-      // advise upgrading to. This is a report-level decision, independent of
-      // which columns are displayed.
-      const currentVersion = parseVersion(version);
-      const effectiveVersion = parseVersion(
-        latestEffective(metadata, requested),
-      );
-      if (
-        currentVersion &&
-        effectiveVersion &&
-        compareVersions(currentVersion, effectiveVersion) === 0
-      ) {
-        continue;
-      }
-
-      const context = {
-        name: dependencyName,
-        // The root package has no workspace; workspaces carry their name.
-        workspace:
-          workspace.workspaceLabel === "{root}" ? undefined : workspaceLabel,
-        requested,
-        version,
         declared:
-          workspace.workspaceLabel === "{root}"
-            ? "root"
-            : isDeclaredBySubproject
-              ? "subproject"
-              : "root",
-        type: declared.type || "",
-        uses,
-        packageDir,
-        repoRoot,
-        npmConfig,
-      };
-
-      const row = {};
-      for (const [columnName, extractor] of Object.entries(reportColumns)) {
-        row[columnName] = await extractor(metadata, context);
-      }
-      rows.push(row);
+          declaredByWorkspace.get(dependencyName) ||
+          rootDependencyMap.get(dependencyName) || {
+            version: "",
+            declared: "subproject",
+            type: "",
+          },
+      });
     }
   }
+
+  const rows = [];
+  const queue = [...candidates];
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(ROW_CONCURRENCY, queue.length || 1)) },
+    async () => {
+      while (queue.length > 0) {
+        const candidate = queue.pop();
+        if (!candidate) {
+          continue;
+        }
+        const {
+          dependencyName,
+          workspace,
+          workspaceLabel,
+          workspaceDir,
+          declared,
+        } = candidate;
+
+        const uses = countUses(
+          workspaceDir,
+          dependencyName,
+          workspace.workspaceLabel,
+        );
+        let version = declared.version || "";
+        const fromDirs =
+          workspace.workspaceLabel === "{root}"
+            ? [repoRoot]
+            : [workspaceDir, repoRoot];
+        const packageDir = resolveInstalledPackageDir(
+          dependencyName,
+          fromDirs,
+          repoRoot,
+        );
+        if (packageDir && fs.existsSync(path.join(packageDir, "package.json"))) {
+          const installedManifest = JSON.parse(
+            fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
+          );
+          version = installedManifest.version || version;
+        }
+        const requested = declared.version || "";
+
+        // The metadata document each column extractor receives; already warmed
+        // by prefetchMetadata above, so this resolves from cache.
+        const metadata = await fetchNpmMetadata(dependencyName, npmConfig);
+
+        // Omit rows whose installed version already matches the version we
+        // would advise upgrading to.
+        const currentVersion = parseVersion(version);
+        const effectiveVersion = parseVersion(latestEffective(metadata, requested));
+        if (
+          currentVersion &&
+          effectiveVersion &&
+          compareVersions(currentVersion, effectiveVersion) === 0
+        ) {
+          continue;
+        }
+
+        const context = {
+          name: dependencyName,
+          // The root package has no workspace; workspaces carry their name.
+          workspace:
+            workspace.workspaceLabel === "{root}" ? undefined : workspaceLabel,
+          requested,
+          version,
+          declared:
+            declared.declared ||
+            (workspace.workspaceLabel === "{root}" ? "root" : "subproject"),
+          type: declared.type || "",
+          uses,
+          packageDir,
+          repoRoot,
+          npmConfig,
+        };
+
+        const row = {};
+        for (const [columnName, extractor] of Object.entries(reportColumns)) {
+          row[columnName] = await extractor(metadata, context);
+        }
+        rows.push(row);
+      }
+    },
+  );
+  await Promise.all(workers);
 
   // workspace/name are appended as implicit final keys so rows the sort spec
   // does not distinguish still come out in a deterministic order.

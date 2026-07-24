@@ -55,11 +55,15 @@ function installCommand(packageManager, location, targets, isMonorepo, flag) {
   return build(packageManager, targets, location, flag);
 }
 
-// Preserve the `^`/`~` leader from the declared range, so the install pins
-// to the same kind of range the manifest already used, not an exact version.
+// Preserve the range operator from the declared range, so updates keep the
+// same policy the manifest already used (e.g. ^, ~, >=) instead of forcing an
+// exact pin.
+function rangeLeader(requested) {
+  return /^(?:\^|~|>=|<=|>|<|=)/.exec(requested || "")?.[0] ?? "";
+}
+
 function targetSpec(row, version) {
-  const leader = /^[\^~]/.exec(row.requested || "")?.[0] ?? "";
-  return `${row.name}@${leader}${version}`;
+  return `${row.name}@${rangeLeader(row.requested)}${version}`;
 }
 
 // Which version a row should be updated to, or null if it isn't eligible.
@@ -89,6 +93,10 @@ function installLocation(row) {
     return null;
   }
   return row.workspace ?? null;
+}
+
+function transitiveOverrideArg(row, target) {
+  return `${row.name}@${rangeLeader(row.requested)}${target}`;
 }
 
 /**
@@ -125,10 +133,15 @@ export function toUpdateCommand(
   packageManager = "npm",
   { isMonorepo = false, hard = false } = {},
 ) {
+  const transitiveOverrides = new Set();
   const groups = new Map();
   for (const row of rows) {
     const target = eligibleTarget(row, hard);
     if (!target) {
+      continue;
+    }
+    if (row.declared === "transitive") {
+      transitiveOverrides.add(transitiveOverrideArg(row, target));
       continue;
     }
     const location = installLocation(row);
@@ -179,5 +192,13 @@ export function toUpdateCommand(
       }
     }
   }
-  return commands;
+  const transitiveCommands =
+    transitiveOverrides.size > 0
+      ? hard
+        ? [...transitiveOverrides]
+            .sort()
+            .map((spec) => `overrideTransitive ${spec}`)
+        : [`overrideTransitive ${[...transitiveOverrides].sort().join(" ")}`]
+      : [];
+  return transitiveCommands.concat(commands);
 }

@@ -22,6 +22,8 @@ export const HELP_TEXT = [
   `                       starts with - (default: ${DEFAULT_SORT.join(",")})`,
   "  -f, --full           Keep the workspace/declared columns even in a",
   "                       single-package repo (they are dropped by default)",
+  "  -T, --transitive     Include transitive dependencies in report rows",
+  "  -O, --transitive-only Only include transitive dependencies",
   `  -F, --format <fmt>   Output format: ${FORMATS.join(", ")} (default: ${DEFAULT_FORMAT})`,
   "                       csv: the dependency report as CSV",
   "                       json: the report rows as JSON",
@@ -43,16 +45,17 @@ export const HELP_TEXT = [
  *   `process.argv.slice(2)`).
  * @returns {{ help: boolean, output: string | null, dir: string,
  *   types: string[], columns: string[] | null, sort: string[] | null,
- *   full: boolean, quiet: boolean, format: "csv" | "json" | "package",
- *   hard: boolean }}
+ *   full: boolean, transitive: boolean, transitiveOnly: boolean,
+ *   quiet: boolean, format: "csv" | "json" | "package", hard: boolean }}
  *   Normalized options: whether help was requested, the raw `--output` path
  *   (or null for stdout), the starting directory (defaulting to "."), the
  *   dependency types to include (defaulting to DEFAULT_TYPES), the columns to
  *   emit (null = all), the sort keys (null = depreport's default order),
- *   whether to keep the vestigial single-package columns, whether to
- *   suppress progress messages, the output format (defaulting to
- *   DEFAULT_FORMAT), and whether --hard was given (forces the "package"
- *   format's hard-update variant regardless of --format).
+ *   whether to keep the vestigial single-package columns, whether to include
+ *   transitive dependency rows (or only transitive rows), whether to suppress
+ *   progress messages, the output format (defaulting to DEFAULT_FORMAT), and
+ *   whether --hard was given (forces the "package" format's hard-update
+ *   variant regardless of --format).
  * @throws {TypeError} If an unknown option is passed or a value is missing.
  * @throws {Error} If `--types`, `--columns`, `--sort`, or `--format` includes
  *   an unrecognized value.
@@ -66,6 +69,8 @@ export function parseCliArgs(argv) {
       columns: { type: "string", short: "c", multiple: true },
       sort: { type: "string", short: "s", multiple: true },
       full: { type: "boolean", short: "f" },
+      transitive: { type: "boolean", short: "T" },
+      "transitive-only": { type: "boolean", short: "O" },
       format: { type: "string", short: "F" },
       hard: { type: "boolean", short: "H" },
       quiet: { type: "boolean", short: "q" },
@@ -81,6 +86,8 @@ export function parseCliArgs(argv) {
     columns: parseColumns(values.columns),
     sort: parseSort(values.sort),
     full: Boolean(values.full),
+    transitive: Boolean(values.transitive || values["transitive-only"]),
+    transitiveOnly: Boolean(values["transitive-only"]),
     quiet: Boolean(values.quiet),
     format: parseFormat(values.format),
     hard: Boolean(values.hard),
