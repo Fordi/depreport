@@ -13,8 +13,10 @@ import { BUILTIN_COLUMNS, latestEffective } from "./columns.js";
 import { DEFAULT_SORT, buildComparator } from "./sort.js";
 
 // CSV rendering is part of the public API: rows from depreport() feed straight
-// into toCsv(), so consumers get both from the package root.
+// into toCsv() / toMarkdown(), so consumers get all of them from the package
+// root.
 export { toCsv, REPORT_COLUMNS, REPORT_FORMATTERS } from "./csv.js";
+export { toMarkdown } from "./markdown.js";
 
 const ROW_CONCURRENCY = Number(
   process.env.DEPREPORT_ROW_CONCURRENCY || os.cpus().length - 1,

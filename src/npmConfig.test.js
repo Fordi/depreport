@@ -43,7 +43,10 @@ test("registryBaseFor: uses a scoped registry when one is configured", () => {
     authEntries: new Map(),
   };
   assert.equal(registryBaseFor("@scope/pkg", config), "https://scope.example/");
-  assert.equal(registryBaseFor("@other/pkg", config), "https://default.example/");
+  assert.equal(
+    registryBaseFor("@other/pkg", config),
+    "https://default.example/",
+  );
   assert.equal(registryBaseFor("plain", config), "https://default.example/");
 });
 

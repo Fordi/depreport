@@ -71,3 +71,14 @@ export const BUILTIN_COLUMNS = {
 };
 
 export const BUILTIN_COLUMN_NAMES = Object.keys(BUILTIN_COLUMNS);
+
+// Columns the Markdown table shows when --columns isn't given: a narrower set
+// than the CSV report, since wide tables are hard to read as plain text.
+export const MARKDOWN_DEFAULT_COLUMNS = [
+  "workspace",
+  "type",
+  "requested",
+  "name",
+  "version",
+  "latestBump",
+];

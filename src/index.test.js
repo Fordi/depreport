@@ -389,7 +389,10 @@ test("depreport: transitive and transitive-only include nested dependencies", as
       dir: root,
       transitiveOnly: true,
     });
-    assert.deepEqual(transitiveOnly.map((row) => row.name), ["nesteddep"]);
+    assert.deepEqual(
+      transitiveOnly.map((row) => row.name),
+      ["nesteddep"],
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -1,41 +1,71 @@
 import { parseArgs } from "node:util";
 
-import { DEP_TYPES, DEFAULT_TYPES } from "./depTypes.js";
+import { DEP_TYPES, DEFAULT_TYPES, TYPE_SECTIONS } from "./depTypes.js";
 import { REPORT_COLUMNS } from "./csv.js";
+import { markdownTable } from "./markdownTable.js";
 import { DEFAULT_SORT, parseSortKey } from "./sort.js";
 
-export const FORMATS = ["csv", "json", "package"];
+export const FORMATS = ["csv", "markdown", "json", "package"];
 export const DEFAULT_FORMAT = "csv";
 
+const HELP_OPTIONS = [
+  ["`dir`", "Directory to start from (default: `.`)"],
+  ["`-o` / `--output` {file}", "Write the report to {file} (default: stdout)"],
+  [
+    "`-t` / `--types` {list}",
+    `Dependency types to include, comma-separated[^1]; default: ${DEFAULT_TYPES.join(", ")})`,
+  ],
+  [
+    "`-c` / `--columns` {list}",
+    "Columns to emit, comma-separated and in order (default: all)",
+  ],
+  ["`-s` / `--sort` {list}", `Sort order[^2]`],
+  [
+    "`-f` / `--full`",
+    "Keep the workspace/declared columns even in a single-package repo",
+  ],
+  ["`-T` / `--transitive`", "Include transitive dependencies in report rows"],
+  ["`-O` / `--transitive-only`", "Only include transitive dependencies"],
+  [
+    "`-F` / `--format {fmt}`",
+    `Output format: ${FORMATS.join(", ")}[^3]; default: ${DEFAULT_FORMAT}`,
+  ],
+  ["`-H` / `--hard`", "Upgrade aggressively[^4]"],
+  ["`-q` / `--quiet`", "Suppress progress messages on stderr"],
+  ["`-h` / `--help`", "Show this help"],
+];
+
 export const HELP_TEXT = [
-  "Usage: depreport [options] [dir]",
+  "Usage: `depreport [options] [dir]`",
   "",
-  "  dir                  Directory to start from (default: '.')",
-  "  -o, --output <file>  Write the CSV report to <file> (default: stdout)",
-  `  -t, --types <list>   Dependency types to include, comma-separated`,
-  `                       (${DEP_TYPES.join(", ")}; default: ${DEFAULT_TYPES.join(", ")})`,
-  "  -c, --columns <list> Columns to emit, comma-separated and in order",
-  `                       (default: all)`,
-  "  -s, --sort <list>    Sort order: column names, comma-separated, each",
-  "                       optionally prefixed with + (ascending, the default)",
-  "                       or - (descending). Use --sort=-col when the list",
-  `                       starts with - (default: ${DEFAULT_SORT.join(",")})`,
-  "  -f, --full           Keep the workspace/declared columns even in a",
-  "                       single-package repo (they are dropped by default)",
-  "  -T, --transitive     Include transitive dependencies in report rows",
-  "  -O, --transitive-only Only include transitive dependencies",
-  `  -F, --format <fmt>   Output format: ${FORMATS.join(", ")} (default: ${DEFAULT_FORMAT})`,
-  "                       csv: the dependency report as CSV",
-  "                       json: the report rows as JSON",
-  "                       package: an install command (detected package",
-  "                       manager, e.g. npm/yarn/pnpm/bun) for every",
-  "                       dependency needing an in-range bump",
-  "  -H, --hard           Like --format=package, but includes any dependency",
-  "                       whose version doesn't match latest (not just",
-  "                       in-range bumps), one dependency per line, pinned",
-  "                       to latest instead of latestBump. Overrides --format",
-  "  -q, --quiet          Suppress progress messages on stderr",
-  "  -h, --help           Show this help",
+  markdownTable([["Option", "Description"], ...HELP_OPTIONS]),
+  "",
+  `[^1]: Dependency types:`,
+  "",
+  ...markdownTable([
+    ["Type", "Section"],
+    ...TYPE_SECTIONS.map(({ type, section }) => [type, section]),
+  ])
+    .split("\n")
+    .map((a) => `    ${a}`),
+  "",
+  `[^2]: column names, comma-separated, each optionally prefixed with + (ascending, the default) or - (descending). Use \`--sort=-col\` instead of \`--sort col\` when the list starts with - (default: ${DEFAULT_SORT.join(",")})`,
+  "",
+  `[^3]: Output formats:`,
+  "",
+  ...markdownTable([
+    ["Format", "Description"],
+    ["`csv`", "the dependency report as CSV"],
+    ["`markdown`", "the dependency report as a Markdown table"],
+    ["`json`", "the report as JSON"],
+    ["`package`", "an upgrade command per workspace"],
+  ])
+    .split("\n")
+    .map((a) => `    ${a}`),
+  "",
+  "    For `package`, the package manager (`npm`/`yarn`/`pnpm`/`bun`) is autodetected",
+  "",
+  "[^4]: `--hard` works like `--format=package`, but includes any dependency whose version doesn't match latest (not just in-range bumps), one dependency per line, pinned to latest instead of latestBump. Overrides `--format`",
 ].join("\n");
 
 /**
@@ -46,7 +76,7 @@ export const HELP_TEXT = [
  * @returns {{ help: boolean, output: string | null, dir: string,
  *   types: string[], columns: string[] | null, sort: string[] | null,
  *   full: boolean, transitive: boolean, transitiveOnly: boolean,
- *   quiet: boolean, format: "csv" | "json" | "package", hard: boolean }}
+ *   quiet: boolean, format: "csv" | "markdown" | "json" | "package", hard: boolean }}
  *   Normalized options: whether help was requested, the raw `--output` path
  *   (or null for stdout), the starting directory (defaulting to "."), the
  *   dependency types to include (defaulting to DEFAULT_TYPES), the columns to

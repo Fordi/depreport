@@ -29,36 +29,48 @@ npm i -D github:Fordi/depreport
 depreport --help
 ```
 
-```plain
-Usage: depreport [options] [dir]
+<!--usage-->
+Usage: `depreport [options] [dir]`
 
-  dir                  Directory to start from (default: '.')
-  -o, --output <file>  Write the CSV report to <file> (default: stdout)
-  -t, --types <list>   Dependency types to include, comma-separated
-                       (main, dev, peer, optional; default: main, dev)
-  -c, --columns <list> Columns to emit, comma-separated and in order
-                       (default: all)
-  -s, --sort <list>    Sort order: column names, comma-separated, each
-                       optionally prefixed with + (ascending, the default)
-                       or - (descending). Use --sort=-col when the list
-                       starts with - (default: -needsBump,published,-size)
-  -f, --full           Keep the workspace/declared columns even in a
-                       single-package repo (they are dropped by default)
-  -T, --transitive     Include transitive dependencies in report rows
-  -O, --transitive-only Only include transitive dependencies
-  -F, --format <fmt>   Output format: csv, json, package (default: csv)
-                       csv: the dependency report as CSV
-                       json: the report rows as JSON
-                       package: an install command (detected package
-                       manager, e.g. npm/yarn/pnpm/bun) for every
-                       dependency needing an in-range bump
-  -H, --hard           Like --format=package, but includes any dependency
-                       whose version doesn't match latest (not just
-                       in-range bumps), one dependency per line, pinned
-                       to latest instead of latestBump. Overrides --format
-  -q, --quiet          Suppress progress messages on stderr
-  -h, --help           Show this help
-```
+| Option                     | Description                                                           |
+|----------------------------|-----------------------------------------------------------------------|
+| `dir`                      | Directory to start from (default: `.`)                                |
+| `-o` / `--output` {file}   | Write the report to {file} (default: stdout)                          |
+| `-t` / `--types` {list}    | Dependency types to include, comma-separated[^1]; default: main, dev) |
+| `-c` / `--columns` {list}  | Columns to emit, comma-separated and in order (default: all)          |
+| `-s` / `--sort` {list}     | Sort order[^2]                                                        |
+| `-f` / `--full`            | Keep the workspace/declared columns even in a single-package repo     |
+| `-T` / `--transitive`      | Include transitive dependencies in report rows                        |
+| `-O` / `--transitive-only` | Only include transitive dependencies                                  |
+| `-F` / `--format {fmt}`    | Output format: csv, markdown, json, package[^3]; default: csv         |
+| `-H` / `--hard`            | Upgrade aggressively[^4]                                              |
+| `-q` / `--quiet`           | Suppress progress messages on stderr                                  |
+| `-h` / `--help`            | Show this help                                                        |
+
+[^1]: Dependency types:
+
+    | Type     | Section              |
+    |----------|----------------------|
+    | main     | dependencies         |
+    | dev      | devDependencies      |
+    | peer     | peerDependencies     |
+    | optional | optionalDependencies |
+
+[^2]: column names, comma-separated, each optionally prefixed with + (ascending, the default) or - (descending). Use `--sort=-col` instead of `--sort col` when the list starts with - (default: -needsBump,published,-size)
+
+[^3]: Output formats:
+
+    | Format     | Description                               |
+    |------------|-------------------------------------------|
+    | `csv`      | the dependency report as CSV              |
+    | `markdown` | the dependency report as a Markdown table |
+    | `json`     | the report as JSON                        |
+    | `package`  | an upgrade command per workspace          |
+
+    For `package`, the package manager (`npm`/`yarn`/`pnpm`/`bun`) is autodetected
+
+[^4]: `--hard` works like `--format=package`, but includes any dependency whose version doesn't match latest (not just in-range bumps), one dependency per line, pinned to latest instead of latestBump. Overrides `--format`
+<!--/usage-->
 
 The CSV report is written to **stdout**; all progress/diagnostic messages go to **stderr**, so you can safely pipe or redirect the report on its own:
 
@@ -83,7 +95,7 @@ depreport ./packages/app -o report.csv
 # Include peer and optional dependencies as well
 depreport -t main,peer,optional
 
-# Include transitive dependencies too (useful for overrides/resolutions)
+# Include transitive dependencies too
 depreport --transitive
 
 # Only transitive dependencies
@@ -100,7 +112,7 @@ depreport --sort=-size,name
 # Emit the report as JSON instead of CSV
 depreport --format json
 
-# Print (and optionally run) install command(s) for everything that
+# Print (and optionally run) upgrade command(s) for everything that
 # needs an in-range bump
 depreport --format package
 depreport -F package | sh
@@ -174,35 +186,20 @@ Cells with no value (for example `published` when the registry document is missi
 `--format` (`-F`) selects what depreport prints, in place of the CSV report:
 
 - `csv` (default) — the dependency report as CSV, as described above.
+- `markdown` — the report as a GitHub-flavored Markdown table, with the columns padded so it reads well as plain text. Values are formatted as in CSV (pipes escaped, newlines flattened). Because wide tables are hard to read, only `workspace`, `type`, `requested`, `name`, `version` and `latestBump` are shown (those present on the rows) unless you choose columns with `--columns`. `--sort` applies as usual. When there are no rows to show, it prints `All packages are up-to-date` instead of an empty table.
 - `json` — `JSON.stringify(rows, null, 2)`: the same row objects the JavaScript API returns, so `published` is an ISO string and `workspace: undefined` fields are simply absent from the output (JSON has no `undefined`). For speed, the CLI skips `size` calculation in this format.
-- `package` — one or more shell commands that install every dependency with `needsBump: true`, pinned to `latestBump` with the same `^`/`~` leader as the manifest's `requested` range (so `^1.2.0` stays a caret range, not an exact pin). In a monorepo, a dependency declared by a workspace's own manifest gets a command scoped to that workspace (`--workspace=<name>` for npm, `yarn workspace <name> add ...` for yarn, `--filter <name>` for pnpm/bun); a dependency declared at the root — even if only reported because a workspace happens to use it — is installed once at the root, using `add` rather than `install` for yarn (which doesn't accept package specs on `install`) with `-W` appended whenever the repo declares workspaces (yarn otherwise refuses to touch the root manifest). For speed, the CLI skips `size` calculation in this format. `--columns` and `--sort` are ignored for `json`/`package` (there's nothing to select or order).
+- `package` — one or more shell commands that upgrade every dependency with `needsBump: true`, pinned to `latestBump` with the same `^`/`~` leader as the manifest's `requested` range (so `^1.2.0` stays a caret range, not an exact pin). There is one command per location, using the package manager's upgrade verb: `yarn upgrade`, `pnpm update`, `bun update`, and `npm install` for npm (which has no verb that moves a range). A dependency declared by a workspace's own manifest gets a command scoped to that workspace (`--workspace=<name>` for npm, `yarn workspace <name> upgrade ...`, `--filter <name>` for pnpm/bun); a dependency declared at the root — even if only reported because a workspace uses it — is upgraded once at the root. Upgrading keeps each dependency in its existing manifest section, so dev/peer/optional dependencies share their location's command. For speed, the CLI skips `size` calculation in this format. `--columns` and `--sort` are ignored for `json`/`package` (there's nothing to select or order).
 
-When a row is `declared: transitive`, `--format package` emits `overrideTransitive ...` instead of an install/add command, because transitive updates belong in root `resolutions`/`overrides` rather than direct dependencies.
+In the `csv` and `markdown` table reports, when `needsBump` isn't among the columns being shown, rows whose `needsBump` is falsy are skipped: `false` (already at the newest in-range version), unknown (`?`), or missing. That makes the Markdown default a list of what needs bumping.
 
-### Transitive override helper
-
-`overrideTransitive` updates the root `package.json` with transitive pins:
-
-- `yarn` projects: writes `resolutions`
-- `npm`/`pnpm`/`bun` projects: writes `overrides`
-
-Arguments are a list of specs in this form:
-
-- `({scope}/)?{package}@{rangeSpec}`
-
-Examples:
-
-```bash
-overrideTransitive left-pad@1.3.0 @types/node@^22.0.0
-```
+Rows with `declared: transitive` aren't direct dependencies, so they're never added to a manifest. Instead they're batched into one root command that refreshes them by name within the ranges their parents already allow: `npm update <names>`, `yarn upgrade <names>`, `pnpm update --depth Infinity <names>`, or `bun update <names>`. Only the lockfile changes, and a transitive dependency whose newest version is outside its parents' ranges can't be moved this way. `--hard` skips transitive rows for that reason.
 
 ```bash
 depreport --format package
 ```
 
 ```plain
-npm install chalk@^5.4.1
-npm install eslint@^9.1.0 --save-dev
+npm install chalk@^5.4.1 eslint@^9.1.0
 npm install lodash@^4.17.21 --workspace=api
 ```
 
@@ -214,14 +211,14 @@ This can be piped directly into bash, for a fast upgrade:
 depreport --format package | bash
 ```
 
-`--hard` (`-H`) is a variant of `package` format for riskier upgrades: instead of only rows with `needsBump: true` batched into one command per location, it includes **every** row whose installed version doesn't match `latest` — including bumps that fall outside the declared range (e.g. already at the newest `1.x` release under `^1.0.0`, but `2.0.0` is out) — pinned to `latest` rather than `latestBump`, and emitted **one command per dependency** rather than batched, so each can be reviewed or run independently. `--hard` overrides `--format` (it doesn't make sense combined with `csv`/`json`).
+`--hard` (`-H`) is a variant of `package` format for riskier upgrades: instead of only rows with `needsBump: true` batched into one command per location, it includes **every** row whose installed version doesn't match `latest` — including bumps that fall outside the declared range (e.g. already at the newest `1.x` release under `^1.0.0`, but `2.0.0` is out) — pinned to `latest` rather than `latestBump`, and emitted **one command per dependency** rather than batched, so each can be reviewed or run independently. `--hard` overrides `--format` (it doesn't make sense combined with `csv`/`markdown`/`json`). Transitive rows are skipped, since they can only be refreshed within their parents' ranges.
 
 ```bash
 depreport --hard
 ```
 
 ```plain
-npm install @types/node@^26.1.0 --save-dev
+npm install @types/node@^26.1.0
 npm install chalk@^5.4.1 --workspace=api
 ```
 
@@ -357,6 +354,14 @@ const csv = toCsv(rows, ["name", "version", "latest", "tagline"]);
 ```
 
 Without an explicit column list, `toCsv(rows)` emits the built-in report columns that are actually present on the rows (so vestigial columns depreport dropped stay dropped), or the full set when `rows` is empty.
+
+`toMarkdown(rows, columns?)` takes the same arguments and renders a Markdown table. Without a column list it uses the narrower Markdown default set (`MARKDOWN_DEFAULT_COLUMNS` in `src/columns.js`):
+
+```javascript
+import { toMarkdown } from "@fordi-org/depreport";
+
+const table = toMarkdown(rows, ["name", "version", "latest"]);
+```
 
 ## Registry configuration
 

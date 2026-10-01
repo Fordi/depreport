@@ -52,7 +52,10 @@ test("toCsv: formats rich values and leaves plain ones unquoted, in order", () =
 
 test("toCsv: stringifies numbers and renders missing fields as empty", () => {
   const columns = ["name", "size", "uses", "version"];
-  const csv = toCsv([{ name: "solo", size: 0, uses: 10 }], columns);
+  const csv = toCsv(
+    [{ name: "solo", size: 0, uses: 10, needsBump: true }],
+    columns,
+  );
   const cells = csv.trimEnd().split("\n")[1].split(",");
   assert.equal(cells[columns.indexOf("name")], "solo");
   // numbers become strings, including 0
@@ -80,7 +83,11 @@ test("toCsv: default columns are the report columns present on the rows", () => 
 
 test("toCsv: quotes and doubles double-quotes, and flattens newlines to spaces", () => {
   const csv = toCsv([
-    { name: 'a "quoted" name', workspace: "line1\nline2\r\nline3" },
+    {
+      name: 'a "quoted" name',
+      workspace: "line1\nline2\r\nline3",
+      needsBump: true,
+    },
   ]);
   const cells = csv.trimEnd().split("\n")[1].split(",");
   // The double-quote forces quoting (and escaping); the newlines do not.
@@ -101,7 +108,10 @@ test("toCsv: renders an indeterminate needsBump (null) as ?", () => {
 });
 
 test("toCsv: quotes a field that contains a comma", () => {
-  assert.equal(toCsv([{ name: "x,y" }], ["name"]), 'name\n"x,y"\n');
+  assert.equal(
+    toCsv([{ name: "x,y", needsBump: true }], ["name"]),
+    'name\n"x,y"\n',
+  );
 });
 
 test("toCsv: always ends with a trailing newline", () => {
@@ -112,4 +122,33 @@ test("toCsv: always ends with a trailing newline", () => {
 test("toCsv: accepts a custom column selection", () => {
   const csv = toCsv([sampleRow], ["name", "version"]);
   assert.equal(csv, "name,version\nleftpad,1.0.5\n");
+});
+
+test("toCsv: shows a file: dependency's requested range and version as 'local file'", () => {
+  const rows = [
+    {
+      name: "foo",
+      requested: "file:vendor/foo",
+      version: "file:vendor/foo",
+      needsBump: true,
+    },
+  ];
+  assert.equal(
+    toCsv(rows, ["name", "requested", "version"]),
+    "name,requested,version\nfoo,local file,local file\n",
+  );
+});
+
+test("toCsv: without a needsBump column, rows with a falsy needsBump are skipped", () => {
+  const rows = [
+    { name: "a", needsBump: false },
+    { name: "b", needsBump: true },
+    { name: "c", needsBump: null },
+    { name: "d" },
+  ];
+  assert.equal(toCsv(rows, ["name"]), "name\nb\n");
+  assert.equal(
+    toCsv(rows, ["name", "needsBump"]),
+    "name,needsBump\na,\nb,✓\nc,?\nd,\n",
+  );
 });

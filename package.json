@@ -1,5 +1,6 @@
 {
   "name": "@fordi-org/depreport",
+  "version": "1.0.2",
   "description": "Get a report on your project's dependencies",
   "license": "ISC",
   "author": "Bryan Elliott <fordiman@gmail.com>",
@@ -13,8 +14,7 @@
     ".": "./src/index.js"
   },
   "bin": {
-    "depreport": "bin/depreport",
-    "overrideTransitive": "bin/overrideTransitive"
+    "depreport": "bin/depreport"
   },
   "files": [
     "src",
@@ -25,15 +25,15 @@
     "@types/node": "^25.9.5",
     "c8": "^11.0.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-n": "^18.2.2",
-    "globals": "^17.7.0",
+    "eslint-plugin-n": "^18.3.0",
+    "globals": "^17.11.0",
     "prettier": "^3.9.6"
   },
   "scripts": {
-    "test": "node --test 'src/**/*.test.js'",
-    "coverage": "c8 --reporter=html node --test '**/*.test.js'",
+    "test": "c8 node --test",
     "validate": "eslint && prettier --check 'src/**/*.js'",
     "neaten": "eslint --fix && prettier --write 'src/**/*.js'",
-    "clean": "node bin/rm.js -- coverage dist"
+    "clean": "node bin/rm.js -- coverage dist",
+    "update-usage": "depreport --help | sed -i -e '/<!--usage-->/ r /dev/stdin' -e '/<!--usage-->/,/<!--\\/usage-->/ { /<!--usage-->/b; /<!--\\/usage-->/b; d; }' README.md"
   }
 }

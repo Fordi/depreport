@@ -4,9 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { depreport, toCsv } from "../src/index.js";
+import { depreport, toCsv, toMarkdown } from "../src/index.js";
 import { parseCliArgs, HELP_TEXT } from "../src/cli.js";
-import { findRepoRoot, hasWorkspaces } from "../src/repoRoot.js";
+import { findRepoRoot } from "../src/repoRoot.js";
 import { detectPackageManager } from "../src/packageManager.js";
 import { toUpdateCommand } from "../src/updateCommand.js";
 
@@ -39,7 +39,7 @@ async function main() {
     full: args.full,
     transitive: args.transitive,
     transitiveOnly: args.transitiveOnly,
-    includeSize: format === "csv",
+    includeSize: format === "csv" || format === "markdown",
     log,
   });
   const output = renderOutput(format, args, rows);
@@ -65,11 +65,12 @@ function renderOutput(format, args, rows) {
     case "package": {
       const repoRoot = findRepoRoot(path.resolve(args.dir));
       const commands = toUpdateCommand(rows, detectPackageManager(repoRoot), {
-        isMonorepo: hasWorkspaces(repoRoot),
         hard: args.hard,
       });
       return commands.length ? `${commands.join("\n")}\n` : "";
     }
+    case "markdown":
+      return args.columns ? toMarkdown(rows, args.columns) : toMarkdown(rows);
     default:
       return args.columns ? toCsv(rows, args.columns) : toCsv(rows);
   }

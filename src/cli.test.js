@@ -144,7 +144,7 @@ test("parseCliArgs: recognizes --quiet and its -q alias", () => {
 
 test("parseCliArgs: format defaults to csv", () => {
   assert.equal(parseCliArgs([]).format, "csv");
-  assert.deepEqual(FORMATS, ["csv", "json", "package"]);
+  assert.deepEqual(FORMATS, ["csv", "markdown", "json", "package"]);
 });
 
 test("parseCliArgs: reads --format and its -F alias", () => {
@@ -178,7 +178,7 @@ test("parseCliArgs: throws when --output is missing its value", () => {
 });
 
 test("HELP_TEXT: describes usage and the options", () => {
-  assert.match(HELP_TEXT, /Usage: depreport/);
+  assert.match(HELP_TEXT, /Usage: `depreport/);
   assert.match(HELP_TEXT, /--output/);
   assert.match(HELP_TEXT, /--types/);
   assert.match(HELP_TEXT, /--sort/);

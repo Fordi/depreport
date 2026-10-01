@@ -88,6 +88,12 @@ test("bin: --format json emits the rows as JSON", () => {
   assert.deepEqual(JSON.parse(result.stdout), []);
 });
 
+test("bin: --format markdown says everything is up to date when there are no rows", () => {
+  const result = run(["--format", "markdown", emptyProject()]);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "All packages are up-to-date\n");
+});
+
 test("bin: -F is the short alias for --format", () => {
   const result = run(["-F", "json", emptyProject()]);
   assert.equal(result.status, 0);
@@ -134,7 +140,7 @@ test("bin: --output writes the CSV to a file and leaves stdout empty", () => {
 test("bin: --help prints usage to stdout and exits 0", () => {
   const result = run(["--help"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /Usage: depreport/);
+  assert.match(result.stdout, /Usage: `depreport/);
 });
 
 test("bin: an unknown option exits 1 with a message on stderr", () => {

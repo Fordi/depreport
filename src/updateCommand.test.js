@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { toUpdateCommand } from "./updateCommand.js";
 
-test("toUpdateCommand: builds an install command for rows needing a bump", () => {
+test("toUpdateCommand: builds an upgrade command for rows needing a bump", () => {
   const rows = [
     {
       name: "leftpad",
@@ -47,49 +47,13 @@ test("toUpdateCommand: uses the given package manager for the root command", () 
       latestBump: "1.2.0",
     },
   ];
-  // yarn install doesn't accept package specs at all, so root always uses add.
-  assert.deepEqual(toUpdateCommand(rows, "yarn"), ["yarn add leftpad@^1.2.0"]);
+  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
+    "yarn upgrade leftpad@^1.2.0",
+  ]);
   assert.deepEqual(toUpdateCommand(rows, "pnpm"), [
-    "pnpm install leftpad@^1.2.0",
+    "pnpm update leftpad@^1.2.0",
   ]);
-  assert.deepEqual(toUpdateCommand(rows, "bun"), [
-    "bun install leftpad@^1.2.0",
-  ]);
-});
-
-test("toUpdateCommand: yarn root install adds -W only in a monorepo", () => {
-  const rows = [
-    {
-      name: "leftpad",
-      requested: "^1.0.0",
-      needsBump: true,
-      latestBump: "1.2.0",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows, "yarn"), ["yarn add leftpad@^1.2.0"]);
-  assert.deepEqual(toUpdateCommand(rows, "yarn", { isMonorepo: true }), [
-    "yarn add leftpad@^1.2.0 -W",
-  ]);
-});
-
-test("toUpdateCommand: isMonorepo does not affect other package managers", () => {
-  const rows = [
-    {
-      name: "leftpad",
-      requested: "^1.0.0",
-      needsBump: true,
-      latestBump: "1.2.0",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows, "npm", { isMonorepo: true }), [
-    "npm install leftpad@^1.2.0",
-  ]);
-  assert.deepEqual(toUpdateCommand(rows, "pnpm", { isMonorepo: true }), [
-    "pnpm install leftpad@^1.2.0",
-  ]);
-  assert.deepEqual(toUpdateCommand(rows, "bun", { isMonorepo: true }), [
-    "bun install leftpad@^1.2.0",
-  ]);
+  assert.deepEqual(toUpdateCommand(rows, "bun"), ["bun update leftpad@^1.2.0"]);
 });
 
 test("toUpdateCommand: rows with no declared/workspace fields install at the root", () => {
@@ -133,105 +97,6 @@ test("toUpdateCommand: a subproject-declared dependency installs scoped to its w
   ];
   assert.deepEqual(toUpdateCommand(rows), [
     "npm install leftpad@^1.2.0 --workspace=app",
-  ]);
-});
-
-test("toUpdateCommand: a transitive dependency installs at the root", () => {
-  const rows = [
-    {
-      name: "glob-parent",
-      requested: "6.0.2",
-      needsBump: true,
-      latestBump: "6.0.3",
-      declared: "transitive",
-      workspace: "app",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows), ["overrideTransitive glob-parent@6.0.3"]);
-});
-
-test("toUpdateCommand: yarn transitive dependencies emit overrideTransitive", () => {
-  const rows = [
-    {
-      name: "glob-parent",
-      requested: "^6.0.2",
-      needsBump: true,
-      latestBump: "6.0.3",
-      declared: "transitive",
-      workspace: "app",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
-    "overrideTransitive glob-parent@^6.0.3",
-  ]);
-});
-
-test("toUpdateCommand: transitive override commands are deduped", () => {
-  const rows = [
-    {
-      name: "glob-parent",
-      requested: "^6.0.2",
-      needsBump: true,
-      latestBump: "6.0.3",
-      declared: "transitive",
-      workspace: "app",
-    },
-    {
-      name: "glob-parent",
-      requested: "^6.0.2",
-      needsBump: true,
-      latestBump: "6.0.3",
-      declared: "transitive",
-      workspace: "web",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
-    "overrideTransitive glob-parent@^6.0.3",
-  ]);
-});
-
-test("toUpdateCommand: hard mode emits one transitive override command per dependency", () => {
-  const rows = [
-    {
-      name: "glob-parent",
-      requested: "^6.0.2",
-      version: "6.0.2",
-      latest: "6.0.3",
-      declared: "transitive",
-    },
-    {
-      name: "minimatch",
-      requested: "^9.0.0",
-      version: "9.0.0",
-      latest: "10.0.0",
-      declared: "transitive",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
-    "overrideTransitive glob-parent@^6.0.3",
-    "overrideTransitive minimatch@^10.0.0",
-  ]);
-});
-
-test("toUpdateCommand: transitive override specs preserve ~= and >= operators", () => {
-  const rows = [
-    {
-      name: "a",
-      requested: "~1.0.0",
-      needsBump: true,
-      latestBump: "1.2.0",
-      declared: "transitive",
-    },
-    {
-      name: "b",
-      requested: ">=2.0.0",
-      needsBump: true,
-      latestBump: "2.3.0",
-      declared: "transitive",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows), [
-    "overrideTransitive a@~1.2.0 b@>=2.3.0",
   ]);
 });
 
@@ -281,13 +146,13 @@ test("toUpdateCommand: builds the workspace-scoped command per package manager",
     },
   ];
   assert.deepEqual(toUpdateCommand(rows, "yarn"), [
-    "yarn workspace app add leftpad@^1.2.0",
+    "yarn workspace app upgrade leftpad@^1.2.0",
   ]);
   assert.deepEqual(toUpdateCommand(rows, "pnpm"), [
-    "pnpm add leftpad@^1.2.0 --filter app",
+    "pnpm update leftpad@^1.2.0 --filter app",
   ]);
   assert.deepEqual(toUpdateCommand(rows, "bun"), [
-    "bun add leftpad@^1.2.0 --filter app",
+    "bun update leftpad@^1.2.0 --filter app",
   ]);
 });
 
@@ -311,132 +176,6 @@ test("toUpdateCommand: dedupes a dependency shared across workspace-attribution 
     },
   ];
   assert.deepEqual(toUpdateCommand(rows), ["npm install leftpad@^1.2.0"]);
-});
-
-test("toUpdateCommand: tags a dev dependency with the package manager's dev flag", () => {
-  const rows = [
-    {
-      name: "eslint",
-      requested: "^9.0.0",
-      needsBump: true,
-      latestBump: "9.1.0",
-      type: "dev",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows), [
-    "npm install eslint@^9.1.0 --save-dev",
-  ]);
-  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
-    "yarn add eslint@^9.1.0 --dev",
-  ]);
-  assert.deepEqual(toUpdateCommand(rows, "pnpm"), [
-    "pnpm install eslint@^9.1.0 --save-dev",
-  ]);
-  assert.deepEqual(toUpdateCommand(rows, "bun"), [
-    "bun install eslint@^9.1.0 --dev",
-  ]);
-});
-
-test("toUpdateCommand: tags peer and optional dependencies with their flags", () => {
-  const peer = [
-    {
-      name: "react",
-      requested: "^18.0.0",
-      needsBump: true,
-      latestBump: "18.3.0",
-      type: "peer",
-    },
-  ];
-  const optional = [
-    {
-      name: "fsevents",
-      requested: "^2.0.0",
-      needsBump: true,
-      latestBump: "2.3.3",
-      type: "optional",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(peer), [
-    "npm install react@^18.3.0 --save-peer",
-  ]);
-  assert.deepEqual(toUpdateCommand(optional), [
-    "npm install fsevents@^2.3.3 --save-optional",
-  ]);
-  assert.deepEqual(toUpdateCommand(peer, "yarn"), [
-    "yarn add react@^18.3.0 --peer",
-  ]);
-  assert.deepEqual(toUpdateCommand(optional, "yarn"), [
-    "yarn add fsevents@^2.3.3 --optional",
-  ]);
-});
-
-test("toUpdateCommand: a main dependency gets no type flag", () => {
-  const rows = [
-    {
-      name: "chalk",
-      requested: "^5.0.0",
-      needsBump: true,
-      latestBump: "5.4.1",
-      type: "main",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows), ["npm install chalk@^5.4.1"]);
-});
-
-test("toUpdateCommand: splits a location into one command per type", () => {
-  const rows = [
-    {
-      name: "chalk",
-      requested: "^5.0.0",
-      needsBump: true,
-      latestBump: "5.4.1",
-      type: "main",
-    },
-    {
-      name: "eslint",
-      requested: "^9.0.0",
-      needsBump: true,
-      latestBump: "9.1.0",
-      type: "dev",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows), [
-    "npm install chalk@^5.4.1",
-    "npm install eslint@^9.1.0 --save-dev",
-  ]);
-});
-
-test("toUpdateCommand: type grouping composes with workspace scoping", () => {
-  const rows = [
-    {
-      name: "eslint",
-      requested: "^9.0.0",
-      needsBump: true,
-      latestBump: "9.1.0",
-      type: "dev",
-      declared: "subproject",
-      workspace: "app",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows), [
-    "npm install eslint@^9.1.0 --workspace=app --save-dev",
-  ]);
-});
-
-test("toUpdateCommand: hard mode also tags each line with its type flag", () => {
-  const rows = [
-    {
-      name: "eslint",
-      requested: "^9.0.0",
-      version: "9.0.0",
-      needsBump: false,
-      latest: "10.0.0",
-      type: "dev",
-    },
-  ];
-  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), [
-    "npm install eslint@^10.0.0 --save-dev",
-  ]);
 });
 
 test("toUpdateCommand: hard mode includes an out-of-range dependency that needsBump ignores", () => {
@@ -546,4 +285,73 @@ test("toUpdateCommand: returns an empty array when nothing needs a bump", () => 
   ];
   assert.deepEqual(toUpdateCommand(rows), []);
   assert.deepEqual(toUpdateCommand([]), []);
+});
+
+test("toUpdateCommand: batches every dependency type for a location into one command", () => {
+  const rows = [
+    {
+      name: "chalk",
+      requested: "^5.0.0",
+      needsBump: true,
+      latestBump: "5.4.1",
+      type: "main",
+    },
+    {
+      name: "eslint",
+      requested: "^9.0.0",
+      needsBump: true,
+      latestBump: "9.1.0",
+      type: "dev",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), [
+    "npm install chalk@^5.4.1 eslint@^9.1.0",
+  ]);
+  assert.deepEqual(toUpdateCommand(rows, "yarn"), [
+    "yarn upgrade chalk@^5.4.1 eslint@^9.1.0",
+  ]);
+});
+
+test("toUpdateCommand: a transitive dependency is refreshed by name at the root", () => {
+  const rows = [
+    {
+      name: "glob-parent",
+      requested: "^6.0.2",
+      needsBump: true,
+      latestBump: "6.0.3",
+      declared: "transitive",
+      workspace: "app",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows), ["npm update glob-parent"]);
+  assert.deepEqual(toUpdateCommand(rows, "yarn"), ["yarn upgrade glob-parent"]);
+  assert.deepEqual(toUpdateCommand(rows, "pnpm"), [
+    "pnpm update --depth Infinity glob-parent",
+  ]);
+  assert.deepEqual(toUpdateCommand(rows, "bun"), ["bun update glob-parent"]);
+});
+
+test("toUpdateCommand: transitive dependencies are deduped, sorted and batched", () => {
+  const rows = ["minimatch", "glob-parent", "glob-parent"].map((name, i) => ({
+    name,
+    requested: "^1.0.0",
+    needsBump: true,
+    latestBump: "1.1.0",
+    declared: "transitive",
+    workspace: i === 2 ? "web" : "app",
+  }));
+  assert.deepEqual(toUpdateCommand(rows), ["npm update glob-parent minimatch"]);
+});
+
+test("toUpdateCommand: hard mode skips transitive dependencies", () => {
+  const rows = [
+    {
+      name: "glob-parent",
+      requested: "^6.0.2",
+      version: "6.0.2",
+      latest: "7.0.0",
+      declared: "transitive",
+    },
+  ];
+  assert.deepEqual(toUpdateCommand(rows, "npm", { hard: true }), []);
 });

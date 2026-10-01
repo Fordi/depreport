@@ -1,58 +1,23 @@
 import { parseVersion, compareVersions } from "./version.js";
-import { DEP_TYPES } from "./depTypes.js";
 
-// The flag that pins a dependency to its manifest section, per package
-// manager and type. Empty string means "no flag needed" (main dependencies
-// are every tool's default).
-const TYPE_FLAGS = {
-  npm: {
-    main: "",
-    dev: "--save-dev",
-    peer: "--save-peer",
-    optional: "--save-optional",
-  },
-  yarn: { main: "", dev: "--dev", peer: "--peer", optional: "--optional" },
-  pnpm: {
-    main: "",
-    dev: "--save-dev",
-    peer: "--save-peer",
-    optional: "--save-optional",
-  },
-  bun: { main: "", dev: "--dev", peer: "--peer", optional: "--optional" },
+// How to upgrade specific packages to specific versions, per package
+// manager, optionally scoped to one workspace (null = repo root). Upgrading
+// an existing dependency keeps it in its current manifest section, so no
+// per-type flags are needed. npm has no `upgrade` verb that can move a range,
+// so `install pkg@range` is its equivalent.
+const UPGRADE = {
+  npm: (targets, workspace) =>
+    `npm install ${targets.join(" ")}${workspace === null ? "" : ` --workspace=${workspace}`}`,
+  yarn: (targets, workspace) =>
+    `yarn ${workspace === null ? "" : `workspace ${workspace} `}upgrade ${targets.join(" ")}`,
+  pnpm: (targets, workspace) =>
+    `pnpm update ${targets.join(" ")}${workspace === null ? "" : ` --filter ${workspace}`}`,
+  bun: (targets, workspace) =>
+    `bun update ${targets.join(" ")}${workspace === null ? "" : ` --filter ${workspace}`}`,
 };
 
-function typeFlag(packageManager, type) {
-  return TYPE_FLAGS[packageManager]?.[type] || "";
-}
-
-// How to install at the repo root, per package manager.
-function rootCommand(packageManager, targets, isMonorepo, flag) {
-  const suffix = flag ? ` ${flag}` : "";
-  if (packageManager === "yarn") {
-    return `${packageManager} add ${targets.join(" ")}${isMonorepo ? " -W" : ""}${suffix}`;
-  }
-  return `${packageManager} install ${targets.join(" ")}${suffix}`;
-}
-
-// How to add a specific package + version scoped to one workspace, per
-// package manager.
-const WORKSPACE_INSTALL = {
-  npm: (pm, targets, workspace, flag) =>
-    `${pm} install ${targets.join(" ")} --workspace=${workspace}${flag ? ` ${flag}` : ""}`,
-  yarn: (pm, targets, workspace, flag) =>
-    `${pm} workspace ${workspace} add ${targets.join(" ")}${flag ? ` ${flag}` : ""}`,
-  pnpm: (pm, targets, workspace, flag) =>
-    `${pm} add ${targets.join(" ")} --filter ${workspace}${flag ? ` ${flag}` : ""}`,
-  bun: (pm, targets, workspace, flag) =>
-    `${pm} add ${targets.join(" ")} --filter ${workspace}${flag ? ` ${flag}` : ""}`,
-};
-
-function installCommand(packageManager, location, targets, isMonorepo, flag) {
-  if (location === null) {
-    return rootCommand(packageManager, targets, isMonorepo, flag);
-  }
-  const build = WORKSPACE_INSTALL[packageManager] || WORKSPACE_INSTALL.npm;
-  return build(packageManager, targets, location, flag);
+function upgradeCommand(packageManager, location, targets) {
+  return (UPGRADE[packageManager] || UPGRADE.npm)(targets, location);
 }
 
 // Preserve the range operator from the declared range, so updates keep the
@@ -95,45 +60,50 @@ function installLocation(row) {
   return row.workspace ?? null;
 }
 
-function transitiveOverrideArg(row, target) {
-  return `${row.name}@${rangeLeader(row.requested)}${target}`;
-}
+// Transitive dependencies can't be pinned without adding a direct dependency
+// or an override, so they are refreshed by name within the ranges their
+// parents already allow. Only the repo-wide lockfile is touched.
+const TRANSITIVE_UPDATE = {
+  npm: (names) => `npm update ${names.join(" ")}`,
+  yarn: (names) => `yarn upgrade ${names.join(" ")}`,
+  pnpm: (names) => `pnpm update --depth Infinity ${names.join(" ")}`,
+  bun: (names) => `bun update ${names.join(" ")}`,
+};
 
 /**
- * Build the shell command(s) that would install every dependency depreport
- * flagged as outdated.
+ * Build the shell command(s) that would upgrade every dependency depreport
+ * flagged as outdated, using each package manager's upgrade verb (`yarn
+ * upgrade`, `pnpm update`, `bun update`; npm's equivalent is `npm install`).
  *
  * In a monorepo, dependencies declared by a workspace's own manifest are
- * installed scoped to that workspace; dependencies declared at the root
- * (even if only reported because a workspace uses them) are installed once
- * at the root. Dependencies are also grouped by `type` (main/dev/peer/
- * optional) and tagged with the package manager's equivalent flag (e.g.
- * `--save-dev`), so re-installing doesn't move a dependency into the wrong
- * manifest section; a location with more than one type in play emits one
- * command per type.
+ * upgraded scoped to that workspace; dependencies declared at the root
+ * (even if only reported because a workspace uses them) are upgraded once
+ * at the root. Upgrading keeps a dependency in its existing manifest
+ * section, so there is one command per location regardless of type.
+ * Transitive dependencies are refreshed by name in a single root command
+ * (`npm update ...`), which keeps them within their parents' ranges and adds
+ * nothing to any manifest.
  *
  * @param {Array<object>} rows Report rows (as returned by depreport()).
  * @param {"npm" | "yarn" | "pnpm" | "bun"} [packageManager="npm"]
  * @param {object} [options]
- * @param {boolean} [options.isMonorepo=false] Whether the repo declares
- *   workspaces; needed for yarn, which requires -W to touch the root
- *   manifest from inside a workspace-enabled repo.
  * @param {boolean} [options.hard=false] Soft (default): only rows with
  *   `needsBump === true`, pinned to `latestBump`, batched into one command
- *   per install location/type. Hard: any row whose installed version doesn't
+ *   per location. Hard: any row whose installed version doesn't
  *   match `latest` (including out-of-range/breaking upgrades), pinned to
  *   `latest`, one command per dependency rather than batched.
- * @returns {string[]} One command per location/type (soft) or per
- *   dependency (hard); root before workspaces, workspaces sorted, and types
- *   within a location in canonical order (main, dev, peer, optional). Empty
- *   when nothing is eligible.
+ *   Transitive rows are skipped in hard mode: they can only be refreshed
+ *   within their parents' ranges, never pinned to latest.
+ * @returns {string[]} One command per location (soft) or per dependency
+ *   (hard); root before workspaces, workspaces sorted. Empty when nothing is
+ *   eligible.
  */
 export function toUpdateCommand(
   rows,
   packageManager = "npm",
-  { isMonorepo = false, hard = false } = {},
+  { hard = false } = {},
 ) {
-  const transitiveOverrides = new Set();
+  const transitiveNames = new Set();
   const groups = new Map();
   for (const row of rows) {
     const target = eligibleTarget(row, hard);
@@ -141,19 +111,14 @@ export function toUpdateCommand(
       continue;
     }
     if (row.declared === "transitive") {
-      transitiveOverrides.add(transitiveOverrideArg(row, target));
+      transitiveNames.add(row.name);
       continue;
     }
     const location = installLocation(row);
-    const type = DEP_TYPES.includes(row.type) ? row.type : "main";
     if (!groups.has(location)) {
-      groups.set(location, new Map());
+      groups.set(location, new Set());
     }
-    const byType = groups.get(location);
-    if (!byType.has(type)) {
-      byType.set(type, new Set());
-    }
-    byType.get(type).add(targetSpec(row, target));
+    groups.get(location).add(targetSpec(row, target));
   }
 
   const commands = [];
@@ -162,43 +127,26 @@ export function toUpdateCommand(
     ...[...groups.keys()].filter((key) => key !== null).sort(),
   ];
   for (const location of locations) {
-    const byType = groups.get(location);
-    if (!byType) {
+    const specs = groups.get(location);
+    if (!specs) {
       continue;
     }
-    for (const type of DEP_TYPES) {
-      const specs = byType.get(type);
-      if (!specs) {
-        continue;
+    const targets = [...specs];
+    if (hard) {
+      for (const target of targets.sort()) {
+        commands.push(upgradeCommand(packageManager, location, [target]));
       }
-      const flag = typeFlag(packageManager, type);
-      const targets = [...specs];
-      if (hard) {
-        for (const target of targets.sort()) {
-          commands.push(
-            installCommand(
-              packageManager,
-              location,
-              [target],
-              isMonorepo,
-              flag,
-            ),
-          );
-        }
-      } else {
-        commands.push(
-          installCommand(packageManager, location, targets, isMonorepo, flag),
-        );
-      }
+    } else {
+      commands.push(upgradeCommand(packageManager, location, targets));
     }
   }
   const transitiveCommands =
-    transitiveOverrides.size > 0
-      ? hard
-        ? [...transitiveOverrides]
-            .sort()
-            .map((spec) => `overrideTransitive ${spec}`)
-        : [`overrideTransitive ${[...transitiveOverrides].sort().join(" ")}`]
+    transitiveNames.size > 0 && !hard
+      ? [
+          (TRANSITIVE_UPDATE[packageManager] || TRANSITIVE_UPDATE.npm)(
+            [...transitiveNames].sort(),
+          ),
+        ]
       : [];
   return transitiveCommands.concat(commands);
 }

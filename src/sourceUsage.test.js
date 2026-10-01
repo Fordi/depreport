@@ -8,7 +8,9 @@ import { countUses } from "./sourceUsage.js";
 
 const tmpDirs = [];
 function makeTmp() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "depreport-")));
+  const dir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "depreport-")),
+  );
   tmpDirs.push(dir);
   return dir;
 }
